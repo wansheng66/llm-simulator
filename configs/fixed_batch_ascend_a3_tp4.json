@@ -1,0 +1,35 @@
+{
+  "platform": "ascend",
+  "hardware_name": "Atlas 900 A3 / Ascend910_9392",
+  "model": "Qwen3-32B",
+  "model_path": "/models/Qwen3-32B",
+  "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+  "runtime": "vllm-ascend",
+  "vllm_version": "0.19.1",
+  "torch_version": "2.9.0+cpu",
+  "torch_npu_version": "2.9.0",
+  "tensor_parallel_size": 4,
+  "logical_device_count": 4,
+  "physical_npu_count_equivalent": 2,
+  "ascend_rt_visible_devices": [
+    4,
+    5,
+    6,
+    7
+  ],
+  "dtype": "bfloat16",
+  "gpu_memory_utilization": 0.85,
+  "max_model_len": 8192,
+  "max_num_batched_tokens": 8192,
+  "max_num_seqs": 32,
+  "block_size_tokens": 16,
+  "enforce_eager": true,
+  "enable_prefix_caching": false,
+  "http_port": 8001,
+  "physical_npu_ids": [
+    2,
+    3
+  ],
+  "logical_devices_per_physical_accelerator": 2,
+  "allocation_note": "logical devices 4-7; physical NPU 2-3; selected to avoid another user's workload on physical NPU 1 chip 1"
+}

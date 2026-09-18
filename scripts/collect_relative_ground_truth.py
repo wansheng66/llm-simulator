@@ -34,12 +34,14 @@ def reusable(path: Path, model: str, tp: int, stage: str,
     return (
         payload.get("collector") == "vllm_fixed_batch_streaming"
         and payload.get("valid") is True
+        and payload.get("fixed_batch_valid") is True
         and payload.get("model") == model
         and config.get("stage") == stage
         and int(config.get("tp_size", -1)) == tp
         and int(config.get("batch_size", -1)) == batch
         and int(config.get(length_key, -1)) == length
         and int(config.get("measured_batches", -1)) == repeats
+        and config.get("submission_mode") == "batched_prompt"
     )
 
 
@@ -56,11 +58,13 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--dtype", default="bfloat16")
     parser.add_argument("--benchmark-spec", type=Path, required=True)
     parser.add_argument("--deployment-config", type=Path, required=True)
+    parser.add_argument("--hardware-metadata-file", type=Path)
     parser.add_argument("--server-command-file", type=Path)
     parser.add_argument("--decode-tokens", type=int, default=32)
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--repeats", type=int, default=3)
     parser.add_argument("--max-start-skew-ms", type=float, default=75.0)
+    parser.add_argument("--max-first-token-spread-ms", type=float, default=10.0)
     parser.add_argument("--resume", action="store_true")
     parser.add_argument("--output-dir", type=Path, required=True)
     return parser.parse_args()
@@ -99,13 +103,19 @@ def main() -> int:
                     "--decode-tokens", str(args.decode_tokens),
                     "--warmup", str(args.warmup),
                     "--repeats", str(args.repeats),
+                    "--submission-mode", "batched_prompt",
                     "--max-start-skew-ms", str(args.max_start_skew_ms),
+                    "--max-first-token-spread-ms",
+                    str(args.max_first_token_spread_ms),
                     "--dtype", args.dtype,
                     "--deployment-config", str(args.deployment_config),
                     "--output", str(output),
                 ]
                 if args.server_command_file:
                     command.extend(["--server-command-file", str(args.server_command_file)])
+                if args.hardware_metadata_file:
+                    command.extend([
+                        "--hardware-metadata-file", str(args.hardware_metadata_file)])
                 print(f"collect {args.hardware_id} {name}: {stage} B={batch} L={length}")
                 subprocess.run(command, cwd=PROJECT_ROOT, check=True)
             else:
@@ -131,8 +141,15 @@ def main() -> int:
         "benchmark_spec_sha256": sha256(args.benchmark_spec),
         "deployment_config": str(args.deployment_config.resolve()),
         "deployment_config_sha256": sha256(args.deployment_config),
+        "hardware_metadata_file": (
+            str(args.hardware_metadata_file.resolve())
+            if args.hardware_metadata_file else None),
+        "hardware_metadata_sha256": (
+            sha256(args.hardware_metadata_file)
+            if args.hardware_metadata_file else None),
         "warmup": args.warmup,
         "repeats": args.repeats,
+        "submission_mode": "batched_prompt",
         "entries": entries,
     }
     path = args.output_dir / "manifest.json"

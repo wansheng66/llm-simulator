@@ -13,7 +13,17 @@ from scripts.profiling_common import (
     validate_profile_document,
 )
 from scripts.collect_fixed_batch_suite import reusable_output
-from scripts.collect_fixed_batch_vllm import unique_prompt_ids
+from scripts.collect_fixed_batch_vllm import (
+    _choice_index,
+    fixed_batch_eligibility,
+    sample_usage_matches,
+    unique_prompt_ids,
+)
+from scripts.collect_fixed_batch_vllm_offline import (
+    request_timing,
+    run_batch,
+    spread_ms,
+)
 from scripts.fit_fixed_batch_decode_calibration import fit_log_shape
 from scripts.validate_operator_holdout import csv_fieldnames, interpolate
 
@@ -127,11 +137,13 @@ class Stage2ProfilingTests(unittest.TestCase):
             "collector": "vllm_fixed_batch_streaming",
             "model": "model",
             "valid": True,
+            "fixed_batch_valid": True,
             "configuration": {
                 "stage": "prefill",
                 "tp_size": 2,
                 "batch_size": 8,
                 "prompt_length": 512,
+                "submission_mode": "batched_prompt",
                 "prompt_policy": (
                     "exact-length prompts with a request-unique first 16-token block"),
             },
@@ -145,6 +157,34 @@ class Stage2ProfilingTests(unittest.TestCase):
             path.write_text(json.dumps(payload), encoding="utf-8")
             self.assertFalse(reusable_output(path, args, "prefill", 8, 512))
 
+    def test_fixed_batch_resume_accepts_strict_offline_point(self):
+        payload = {
+            "schema_version": 2,
+            "collector": "vllm_fixed_batch_offline",
+            "model": "/models/Qwen3-32B",
+            "valid": True,
+            "fixed_batch_valid": True,
+            "configuration": {
+                "stage": "prefill",
+                "tp_size": 4,
+                "batch_size": 2,
+                "prompt_length": 128,
+                "submission_mode": "offline_enqueue_barrier",
+                "prompt_policy": (
+                    "exact-length token-id prompts with a request-unique "
+                    "first 16-token block"),
+            },
+        }
+        args = Namespace(
+            model="/models/Qwen3-32B",
+            tp_size=4,
+            collector_mode="offline",
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "point.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            self.assertTrue(reusable_output(path, args, "prefill", 2, 128))
+
     def test_fixed_batch_prompts_are_exact_length_and_request_unique(self):
         base = [11, 12, 13, 14] * 16
         first = unique_prompt_ids(base, "repeat_1_request_1")
@@ -153,6 +193,107 @@ class Stage2ProfilingTests(unittest.TestCase):
         self.assertEqual(len(second), len(base))
         self.assertNotEqual(first[:16], second[:16])
         self.assertEqual(first[16:], base[16:])
+
+    def test_strict_fixed_batch_requires_joint_submission_and_budget(self):
+        args = Namespace(
+            submission_mode="batched_prompt", stage="prefill",
+            batch_size=2, length=128, decode_tokens=32)
+        deployment = {"config": {
+            "max_num_seqs": 32,
+            "max_num_batched_tokens": 8192,
+        }}
+        eligibility = fixed_batch_eligibility(args, deployment)
+        self.assertTrue(eligibility["eligible"])
+        sample = {"server_usage": {
+            "prompt_tokens": 256,
+            "completion_tokens": 2,
+        }}
+        self.assertTrue(sample_usage_matches(sample, args))
+
+        args.length = 4097
+        self.assertFalse(fixed_batch_eligibility(args, deployment)["eligible"])
+
+    def test_batched_choice_indices_are_validated(self):
+        self.assertEqual(_choice_index({"index": 1}, 2), 1)
+        self.assertIsNone(_choice_index({"index": 2}, 2))
+        self.assertIsNone(_choice_index({}, 2))
+
+    def test_offline_request_timing_uses_engine_timestamps(self):
+        class Metrics:
+            scheduled_ts = 10.0
+            first_token_ts = 10.2
+            last_token_ts = 10.5
+            first_token_latency = 0.25
+            num_generation_tokens = 4
+
+        class Completion:
+            token_ids = [1, 2, 3, 4]
+
+        class Output:
+            metrics = Metrics()
+            outputs = [Completion()]
+            prompt_token_ids = [7] * 128
+
+        timing = request_timing(Output())
+        self.assertAlmostEqual(timing["prefill_ms"], 200.0)
+        self.assertAlmostEqual(timing["tpot_ms"], 100.0)
+        self.assertEqual(timing["actual_prompt_tokens"], 128)
+        self.assertEqual(timing["actual_output_tokens"], 4)
+        self.assertAlmostEqual(spread_ms([
+            {"scheduled_ts": 1.000}, {"scheduled_ts": 1.004},
+        ], "scheduled_ts"), 4.0)
+
+    def test_offline_fixed_batch_enqueues_every_request_before_waiting(self):
+        class Metrics:
+            first_token_latency = 0.01
+            last_token_ts = 1.02
+            num_generation_tokens = 1
+
+            def __init__(self, scheduled_ts):
+                self.scheduled_ts = scheduled_ts
+                self.first_token_ts = scheduled_ts + 0.01
+
+        class Completion:
+            token_ids = [1]
+
+        class Output:
+            outputs = [Completion()]
+            prompt_token_ids = [7] * 32
+
+            def __init__(self, request_id, scheduled_ts):
+                self.request_id = request_id
+                self.metrics = Metrics(scheduled_ts)
+
+        class FakeLLM:
+            def __init__(self):
+                self.calls = []
+
+            def enqueue(self, prompts, sampling_params, use_tqdm):
+                self.calls.append(("enqueue", len(prompts), use_tqdm))
+                return ["10-first", "11-second"]
+
+            def wait_for_completion(self, use_tqdm):
+                self.calls.append(("wait", use_tqdm))
+                # Deliberately reverse completion order. Logical request IDs
+                # must still be associated through IDs returned by enqueue().
+                return [Output("11", 1.001), Output("10", 1.000)]
+
+        llm = FakeLLM()
+        args = Namespace(
+            batch_size=2,
+            stage="prefill",
+            max_scheduled_spread_ms=5.0,
+            max_first_token_spread_ms=10.0,
+        )
+        result = run_batch(llm, object(), [7, 8] * 16, args, "repeat_1")
+        self.assertEqual(llm.calls, [("enqueue", 2, False), ("wait", False)])
+        self.assertEqual(result["enqueued_request_ids"],
+                         ["10-first", "11-second"])
+        self.assertEqual(
+            [row["request_id"] for row in result["requests"]],
+            ["offline_prefill_repeat_1_2", "offline_prefill_repeat_1_1"],
+        )
+        self.assertAlmostEqual(result["scheduled_spread_ms"], 1.0)
 
     def test_decode_shape_calibration_recovers_synthetic_power_law(self):
         rows = []

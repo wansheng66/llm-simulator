@@ -1,0 +1,778 @@
+{
+  "schema_version": 2,
+  "collector": "vllm_fixed_batch_offline",
+  "experiment_type": "fixed_batch_iteration_validation",
+  "model": "/models/Qwen3-32B",
+  "configuration": {
+    "kind": "vllm_offline_fixed_batch_iteration_validation",
+    "stage": "decode",
+    "tp_size": 4,
+    "batch_size": 4,
+    "initial_kv_length": 512,
+    "decode_tokens": 32,
+    "dtype": "bfloat16",
+    "warmup_batches": 1,
+    "measured_batches": 3,
+    "submission_mode": "offline_enqueue_barrier",
+    "release_policy": "complete prompt list added by LLM.enqueue before LLM.wait_for_completion starts engine processing",
+    "v1_engine_core_multiprocessing": false,
+    "async_scheduling": false,
+    "enable_chunked_prefill": false,
+    "prompt_policy": "exact-length token-id prompts with a request-unique first 16-token block to prevent prefix-cache reuse",
+    "metric": "mean per-request engine TPOT",
+    "max_allowed_scheduled_spread_ms": 5.0,
+    "max_allowed_first_token_spread_ms": 10.0
+  },
+  "deployment": {
+    "config_path": "/workspace/llm-simulator/configs/fixed_batch_ascend_a3_tp4.json",
+    "config_sha256": "63f3489efc91ae8bef27f5d80bb46e1a13f07842dde72bbecb557284d06cc3b5",
+    "config": {
+      "platform": "ascend",
+      "hardware_name": "Atlas 900 A3 / Ascend910_9392",
+      "model": "Qwen3-32B",
+      "model_path": "/models/Qwen3-32B",
+      "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+      "runtime": "vllm-ascend",
+      "vllm_version": "0.19.1",
+      "torch_version": "2.9.0+cpu",
+      "torch_npu_version": "2.9.0",
+      "tensor_parallel_size": 4,
+      "logical_device_count": 4,
+      "physical_npu_count_equivalent": 2,
+      "ascend_rt_visible_devices": [
+        4,
+        5,
+        6,
+        7
+      ],
+      "dtype": "bfloat16",
+      "gpu_memory_utilization": 0.85,
+      "max_model_len": 8192,
+      "max_num_batched_tokens": 8192,
+      "max_num_seqs": 32,
+      "block_size_tokens": 16,
+      "enforce_eager": true,
+      "enable_prefix_caching": false,
+      "http_port": 8001,
+      "physical_npu_ids": [
+        2,
+        3
+      ],
+      "logical_devices_per_physical_accelerator": 2,
+      "allocation_note": "logical devices 4-7; physical NPU 2-3; selected to avoid another user's workload on physical NPU 1 chip 1"
+    }
+  },
+  "metadata": {
+    "captured_at_utc": "2026-09-17T12:14:12.343225+00:00",
+    "host": {
+      "hostname": "Altas-900-RCK-A3-4",
+      "platform": "Linux-5.10.0-216.0.0.115.oe2203sp4.aarch64-aarch64-with-glibc2.38",
+      "python": "3.11.14 (main, Feb 26 2026, 03:58:41) [GCC 12.3.1 (openEuler 12.3.1-99.oe2403sp2)]",
+      "executable": "/usr/local/python3.11.14/bin/python"
+    },
+    "software": {
+      "torch": "2.9.0+cpu",
+      "torch-npu": "2.9.0",
+      "vllm": "0.19.1+empty",
+      "vllm-ascend": "0.19.1rc1",
+      "transformers": "5.5.3",
+      "triton": null,
+      "numpy": "1.26.4",
+      "openai": "2.33.0",
+      "nvidia-nccl-cu12": null
+    },
+    "torch_runtime": {
+      "available": true,
+      "torch_version": "2.9.0+cpu",
+      "cuda_build_version": null,
+      "cuda_available": false
+    },
+    "cuda": {
+      "visible_devices": null,
+      "nvidia_smi_query": null,
+      "topology": null
+    },
+    "ascend": {
+      "available": true,
+      "visible_devices": "4,5,6,7",
+      "torch_npu_version": "2.9.0",
+      "vllm_ascend_version": "0.19.1rc1",
+      "npu_smi_list": "Total Count                    : 8\n\n\tNPU ID                         : 0\n\tChip Count                     : 2\n\n\tNPU ID                         : 1\n\tChip Count                     : 2\n\n\tNPU ID                         : 2\n\tChip Count                     : 2\n\n\tNPU ID                         : 3\n\tChip Count                     : 2\n\n\tNPU ID                         : 4\n\tChip Count                     : 2\n\n\tNPU ID                         : 5\n\tChip Count                     : 2\n\n\tNPU ID                         : 6\n\tChip Count                     : 2\n\n\tNPU ID                         : 7\n\tChip Count                     : 2",
+      "npu_smi_info": "+------------------------------------------------------------------------------------------------+\n| npu-smi 25.5.2                   Version: 25.5.2                                               |\n+---------------------------+---------------+----------------------------------------------------+\n| NPU   Name                | Health        | Power(W)    Temp(C)           Hugepages-Usage(page)|\n| Chip  Phy-ID              | Bus-Id        | AICore(%)   Memory-Usage(MB)  HBM-Usage(MB)        |\n+===========================+===============+====================================================+\n| 0     Ascend910           | OK            | 159.9       36                0    / 0             |\n| 0     0                   | 0000:9D:00.0  | 0           0    / 0          3139 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 0     Ascend910           | OK            | -           37                0    / 0             |\n| 1     1                   | 0000:9F:00.0  | 0           0    / 0          2881 / 65536         |\n+===========================+===============+====================================================+\n| 1     Ascend910           | OK            | 168.8       38                0    / 0             |\n| 0     2                   | 0000:99:00.0  | 0           0    / 0          3123 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 1     Ascend910           | OK            | -           36                0    / 0             |\n| 1     3                   | 0000:9B:00.0  | 0           0    / 0          22171/ 65536         |\n+===========================+===============+====================================================+\n| 2     Ascend910           | OK            | 160.5       36                0    / 0             |\n| 0     4                   | 0000:95:00.0  | 0           0    / 0          56746/ 65536         |\n+------------------------------------------------------------------------------------------------+\n| 2     Ascend910           | OK            | -           36                0    / 0             |\n| 1     5                   | 0000:97:00.0  | 0           0    / 0          56510/ 65536         |\n+===========================+===============+====================================================+\n| 3     Ascend910           | OK            | 162.8       36                0    / 0             |\n| 0     6                   | 0000:91:00.0  | 0           0    / 0          56740/ 65536         |\n+------------------------------------------------------------------------------------------------+\n| 3     Ascend910           | OK            | -           38                0    / 0             |\n| 1     7                   | 0000:93:00.0  | 0           0    / 0          56505/ 65536         |\n+===========================+===============+====================================================+\n| 4     Ascend910           | OK            | 162.8       36                0    / 0             |\n| 0     8                   | 0000:8D:00.0  | 0           0    / 0          3143 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 4     Ascend910           | OK            | -           36                0    / 0             |\n| 1     9                   | 0000:8F:00.0  | 100         0    / 0          2874 / 65536         |\n+===========================+===============+====================================================+\n| 5     Ascend910           | OK            | 160.6       36                0    / 0             |\n| 0     10                  | 0000:89:00.0  | 100         0    / 0          3138 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 5     Ascend910           | OK            | -           34                0    / 0             |\n| 1     11                  | 0000:8B:00.0  | 100         0    / 0          2875 / 65536         |\n+===========================+===============+====================================================+\n| 6     Ascend910           | OK            | 154.6       37                0    / 0             |\n| 0     12                  | 0000:85:00.0  | 100         0    / 0          3127 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 6     Ascend910           | OK            | -           37                0    / 0             |\n| 1     13                  | 0000:87:00.0  | 100         0    / 0          2874 / 65536         |\n+===========================+===============+====================================================+\n| 7     Ascend910           | OK            | 164.0       37                0    / 0             |\n| 0     14                  | 0000:81:00.0  | 100         0    / 0          3129 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 7     Ascend910           | OK            | -           36                0    / 0             |\n| 1     15                  | 0000:83:00.0  | 100         0    / 0          2873 / 65536         |\n+===========================+===============+====================================================+\n+---------------------------+---------------+----------------------------------------------------+\n| NPU     Chip              | Process id    | Process name             | Process memory(MB)      |\n+===========================+===============+====================================================+\n| No running processes found in NPU 0                                                            |\n+===========================+===============+====================================================+\n| 1       1                 | 3143250       |                          | 110                     |\n| 1       1                 | 3143970       |                          | 19279                   |\n+===========================+===============+====================================================+\n| 2       0                 | 3198548       |                          | 53673                   |\n| 2       1                 | 3198552       |                          | 53673                   |\n+===========================+===============+====================================================+\n| 3       0                 | 3198566       |                          | 53673                   |\n| 3       1                 | 3198590       |                          | 53673                   |\n+===========================+===============+====================================================+\n| No running processes found in NPU 4                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 5                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 6                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 7                                                            |\n+===========================+===============+====================================================+",
+      "cann_or_driver_version_file": "Version=25.5.2\nascendhal_version=7.35.23\naicpu_version=1.0\ntdt_version=1.0\nlog_version=1.0\nprof_version=2.0\ndvppkernels_version=1.1\ntsfw_version=1.0\nInnerversion=V100R001C23SPC007B221\ncompatible_version=[V100R001C19],[V100R001C20],[V100R001C21],[V100R001C22],[V100R001C23]\ncompatible_version_fw=[7.0.0,8.9.9]\npackage_version=25.5.2",
+      "note": "NPU visibility may be absent in an HTTP-only collector; the authoritative serving allocation is stored in deployment.config"
+    },
+    "model": {
+      "path": "/models/Qwen3-32B",
+      "config_path": "/models/Qwen3-32B/config.json",
+      "config_present": true,
+      "config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+      "config": {
+        "model_type": "qwen3",
+        "architectures": [
+          "Qwen3ForCausalLM"
+        ],
+        "num_hidden_layers": 64,
+        "hidden_size": 5120,
+        "intermediate_size": 25600,
+        "num_attention_heads": 64,
+        "num_key_value_heads": 8,
+        "head_dim": 128,
+        "torch_dtype": "bfloat16",
+        "vocab_size": 151936,
+        "max_position_embeddings": 40960
+      }
+    },
+    "benchmark": {
+      "kind": "vllm_offline_fixed_batch_iteration_validation",
+      "stage": "decode",
+      "tp_size": 4,
+      "batch_size": 4,
+      "initial_kv_length": 512,
+      "decode_tokens": 32,
+      "dtype": "bfloat16",
+      "warmup_batches": 1,
+      "measured_batches": 3,
+      "submission_mode": "offline_enqueue_barrier",
+      "release_policy": "complete prompt list added by LLM.enqueue before LLM.wait_for_completion starts engine processing",
+      "v1_engine_core_multiprocessing": false,
+      "async_scheduling": false,
+      "enable_chunked_prefill": false,
+      "prompt_policy": "exact-length token-id prompts with a request-unique first 16-token block to prevent prefix-cache reuse",
+      "metric": "mean per-request engine TPOT",
+      "max_allowed_scheduled_spread_ms": 5.0,
+      "max_allowed_first_token_spread_ms": 10.0
+    },
+    "environment": {
+      "ASCEND_AICPU_PATH": "/usr/local/Ascend/cann-8.5.1",
+      "ASCEND_CUSTOM_OPP_PATH": "/vllm-workspace/vllm-ascend/vllm_ascend/_cann_ops_custom/vendors/vllm-ascend",
+      "ASCEND_DOCKER_RUNTIME": "True",
+      "ASCEND_HOME_PATH": "/usr/local/Ascend/cann-8.5.1",
+      "ASCEND_OPP_PATH": "/usr/local/Ascend/cann-8.5.1/opp",
+      "ASCEND_RT_VISIBLE_DEVICES": "4,5,6,7",
+      "ASCEND_TOOLKIT_HOME": "/usr/local/Ascend/cann-8.5.1",
+      "ASCEND_TOOLKIT_LATEST_HOME": "/usr/local/Ascend/ascend-toolkit/latest",
+      "HCCL_CONNECT_TIMEOUT": "7200",
+      "PYTORCH_NPU_ALLOC_CONF": "expandable_segments:True",
+      "TORCH_DEVICE_BACKEND_AUTOLOAD": "1",
+      "VLLM_DISABLE_SHARED_EXPERTS_STREAM": "1",
+      "VLLM_ENABLE_V1_MULTIPROCESSING": "0",
+      "VLLM_OBJECT_STORAGE_SHM_BUFFER_NAME": "VLLM_OBJECT_STORAGE_SHM_BUFFER_08e8aa083e7149fd872acbc107e28b69"
+    },
+    "source": {
+      "project_root": "/workspace/llm-simulator",
+      "git_commit": null,
+      "git_dirty": false
+    }
+  },
+  "serving_host_hardware": {
+    "path": "/workspace/llm-simulator/data/hardware/atlas900_a3_9392.json",
+    "sha256": "6d0abff395092822af2e480ac34ca40a96557b4f9ffab234678fdcfcdf91a904",
+    "snapshot": {
+      "schema_version": 1,
+      "artifact_type": "serving_host_hardware_metadata",
+      "hardware_identity": {
+        "platform": "ascend",
+        "hardware_id": "atlas900_a3_9392_node",
+        "physical_accelerator_count": 8,
+        "logical_accelerator_count": 16,
+        "logical_devices_per_physical_accelerator": 2.0,
+        "notes": "Atlas 900 A3 node; 8 physical dual-die NPUs; 16 logical Ascend910_9392 devices"
+      },
+      "runtime_metadata": {
+        "captured_at_utc": "2026-09-17T08:52:47.206408+00:00",
+        "host": {
+          "hostname": "Altas-900-RCK-A3-4",
+          "platform": "Linux-5.10.0-216.0.0.115.oe2203sp4.aarch64-aarch64-with-glibc2.34",
+          "python": "3.14.7 | packaged by Anaconda, Inc. | (main, Aug 14 2026, 10:25:21) [GCC 14.3.0]",
+          "executable": "/mnt/data_nvme0n1/lihaozhe/miniconda3/bin/python3"
+        },
+        "software": {
+          "torch": null,
+          "torch-npu": null,
+          "vllm": null,
+          "vllm-ascend": null,
+          "transformers": null,
+          "triton": null,
+          "numpy": null,
+          "openai": null,
+          "nvidia-nccl-cu12": null
+        },
+        "torch_runtime": {
+          "available": false,
+          "error": "ModuleNotFoundError: No module named 'torch'"
+        },
+        "cuda": {
+          "visible_devices": null,
+          "nvidia_smi_query": null,
+          "topology": null
+        },
+        "ascend": {
+          "available": true,
+          "visible_devices": null,
+          "torch_npu_version": null,
+          "vllm_ascend_version": null,
+          "npu_smi_list": "Total Count                    : 8\n\n\tNPU ID                         : 0\n\tChip Count                     : 2\n\n\tNPU ID                         : 1\n\tChip Count                     : 2\n\n\tNPU ID                         : 2\n\tChip Count                     : 2\n\n\tNPU ID                         : 3\n\tChip Count                     : 2\n\n\tNPU ID                         : 4\n\tChip Count                     : 2\n\n\tNPU ID                         : 5\n\tChip Count                     : 2\n\n\tNPU ID                         : 6\n\tChip Count                     : 2\n\n\tNPU ID                         : 7\n\tChip Count                     : 2",
+          "npu_smi_info": "+------------------------------------------------------------------------------------------------+\n| npu-smi 25.5.2                   Version: 25.5.2                                               |\n+---------------------------+---------------+----------------------------------------------------+\n| NPU   Name                | Health        | Power(W)    Temp(C)           Hugepages-Usage(page)|\n| Chip  Phy-ID              | Bus-Id        | AICore(%)   Memory-Usage(MB)  HBM-Usage(MB)        |\n+===========================+===============+====================================================+\n| 0     Ascend910           | OK            | 160.8       36                0    / 0             |\n| 0     0                   | 0000:9D:00.0  | 0           0    / 0          56140/ 65536         |\n+------------------------------------------------------------------------------------------------+\n| 0     Ascend910           | OK            | -           37                0    / 0             |\n| 1     1                   | 0000:9F:00.0  | 0           0    / 0          55877/ 65536         |\n+===========================+===============+====================================================+\n| 1     Ascend910           | OK            | 158.6       37                0    / 0             |\n| 0     2                   | 0000:99:00.0  | 0           0    / 0          56119/ 65536         |\n+------------------------------------------------------------------------------------------------+\n| 1     Ascend910           | OK            | -           36                0    / 0             |\n| 1     3                   | 0000:9B:00.0  | 0           0    / 0          55891/ 65536         |\n+===========================+===============+====================================================+\n| 2     Ascend910           | OK            | 160.4       36                0    / 0             |\n| 0     4                   | 0000:95:00.0  | 0           0    / 0          3123 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 2     Ascend910           | OK            | -           36                0    / 0             |\n| 1     5                   | 0000:97:00.0  | 0           0    / 0          2890 / 65536         |\n+===========================+===============+====================================================+\n| 3     Ascend910           | OK            | 162.6       35                0    / 0             |\n| 0     6                   | 0000:91:00.0  | 0           0    / 0          3115 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 3     Ascend910           | OK            | -           37                0    / 0             |\n| 1     7                   | 0000:93:00.0  | 0           0    / 0          2884 / 65536         |\n+===========================+===============+====================================================+\n| 4     Ascend910           | OK            | 162.9       36                0    / 0             |\n| 0     8                   | 0000:8D:00.0  | 0           0    / 0          3143 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 4     Ascend910           | OK            | -           36                0    / 0             |\n| 1     9                   | 0000:8F:00.0  | 100         0    / 0          2874 / 65536         |\n+===========================+===============+====================================================+\n| 5     Ascend910           | OK            | 161.7       34                0    / 0             |\n| 0     10                  | 0000:89:00.0  | 100         0    / 0          3138 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 5     Ascend910           | OK            | -           34                0    / 0             |\n| 1     11                  | 0000:8B:00.0  | 100         0    / 0          2875 / 65536         |\n+===========================+===============+====================================================+\n| 6     Ascend910           | OK            | 155.1       36                0    / 0             |\n| 0     12                  | 0000:85:00.0  | 100         0    / 0          3127 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 6     Ascend910           | OK            | -           37                0    / 0             |\n| 1     13                  | 0000:87:00.0  | 100         0    / 0          2874 / 65536         |\n+===========================+===============+====================================================+\n| 7     Ascend910           | OK            | 163.7       37                0    / 0             |\n| 0     14                  | 0000:81:00.0  | 100         0    / 0          3129 / 65536         |\n+------------------------------------------------------------------------------------------------+\n| 7     Ascend910           | OK            | -           36                0    / 0             |\n| 1     15                  | 0000:83:00.0  | 100         0    / 0          2873 / 65536         |\n+===========================+===============+====================================================+\n+---------------------------+---------------+----------------------------------------------------+\n| NPU     Chip              | Process id    | Process name             | Process memory(MB)      |\n+===========================+===============+====================================================+\n| 0       0                 | 1218393       | VLLMWorker_TP            | 53052                   |\n| 0       1                 | 1218394       | VLLMWorker_TP            | 53052                   |\n+===========================+===============+====================================================+\n| 1       0                 | 1218395       | VLLMWorker_TP            | 53052                   |\n| 1       1                 | 1218396       | VLLMWorker_TP            | 53052                   |\n+===========================+===============+====================================================+\n| No running processes found in NPU 2                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 3                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 4                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 5                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 6                                                            |\n+===========================+===============+====================================================+\n| No running processes found in NPU 7                                                            |\n+===========================+===============+====================================================+",
+          "cann_or_driver_version_file": "Version=25.5.2\nascendhal_version=7.35.23\naicpu_version=1.0\ntdt_version=1.0\nlog_version=1.0\nprof_version=2.0\ndvppkernels_version=1.1\ntsfw_version=1.0\nInnerversion=V100R001C23SPC007B221\ncompatible_version=[V100R001C19],[V100R001C20],[V100R001C21],[V100R001C22],[V100R001C23]\ncompatible_version_fw=[7.0.0,8.9.9]\npackage_version=25.5.2",
+          "note": "NPU visibility may be absent in an HTTP-only collector; the authoritative serving allocation is stored in deployment.config"
+        },
+        "model": {
+          "path": "/mnt/dujs_st/lihaozhe/models/Qwen3-32B",
+          "config_path": "/mnt/dujs_st/lihaozhe/models/Qwen3-32B/config.json",
+          "config_present": true,
+          "config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+          "config": {
+            "model_type": "qwen3",
+            "architectures": [
+              "Qwen3ForCausalLM"
+            ],
+            "num_hidden_layers": 64,
+            "hidden_size": 5120,
+            "intermediate_size": 25600,
+            "num_attention_heads": 64,
+            "num_key_value_heads": 8,
+            "head_dim": 128,
+            "torch_dtype": "bfloat16",
+            "vocab_size": 151936,
+            "max_position_embeddings": 40960
+          }
+        },
+        "benchmark": {
+          "hardware_identity": {
+            "platform": "ascend",
+            "hardware_id": "atlas900_a3_9392_node",
+            "physical_accelerator_count": 8,
+            "logical_accelerator_count": 16,
+            "logical_devices_per_physical_accelerator": 2.0,
+            "notes": "Atlas 900 A3 node; 8 physical dual-die NPUs; 16 logical Ascend910_9392 devices"
+          }
+        },
+        "environment": {},
+        "source": {
+          "project_root": "/mnt/data_nvme0n1/lihaozhe/llm-simulator",
+          "git_commit": "f1ec65b8eb51ddc0dde1bf3954459b6465437b4e",
+          "git_dirty": true
+        }
+      }
+    }
+  },
+  "warmup": [
+    {
+      "repeat_id": "warmup_1",
+      "successful_requests": 4,
+      "scheduled_spread_ms": 0.0,
+      "first_token_spread_ms": 0.0,
+      "enqueue_time_ms": 0.5501843988895416,
+      "enqueued_request_ids": [
+        "180-81a69a33",
+        "181-a19c2fa9",
+        "182-9e23dad7",
+        "183-a89a3e44"
+      ],
+      "batch_wall_time_ms": 2714.768825098872,
+      "metric_name": "mean_engine_tpot_ms",
+      "observed_iteration_ms": 81.9711149820397,
+      "requests": [
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647241.7290618,
+            "queued_ts": 11592309.11660736,
+            "scheduled_ts": 11592309.116936604,
+            "first_token_ts": 11592309.28981578,
+            "last_token_ts": 11592311.830920344,
+            "first_token_latency": 0.17342329025268555,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592309.116936604,
+          "first_token_ts": 11592309.28981578,
+          "last_token_ts": 11592311.830920344,
+          "prefill_ms": 172.87917621433735,
+          "tpot_ms": 81.9711149820397,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_warmup_1_1",
+          "engine_request_id": "180",
+          "enqueue_request_id": "180-81a69a33",
+          "prompt_sha256": "c7540bc8b918712e59a1f68025363bd80225521f6525b5481602e723b6de55fa",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647241.7292664,
+            "queued_ts": 11592309.116723392,
+            "scheduled_ts": 11592309.116936604,
+            "first_token_ts": 11592309.28981578,
+            "last_token_ts": 11592311.830920344,
+            "first_token_latency": 0.1732187271118164,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592309.116936604,
+          "first_token_ts": 11592309.28981578,
+          "last_token_ts": 11592311.830920344,
+          "prefill_ms": 172.87917621433735,
+          "tpot_ms": 81.9711149820397,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_warmup_1_2",
+          "engine_request_id": "181",
+          "enqueue_request_id": "181-a19c2fa9",
+          "prompt_sha256": "761241d209ab4465b33074be2e21713538c72d55d90357c12a5abf17e0b7b204",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647241.7293804,
+            "queued_ts": 11592309.116824351,
+            "scheduled_ts": 11592309.116936604,
+            "first_token_ts": 11592309.28981578,
+            "last_token_ts": 11592311.830920344,
+            "first_token_latency": 0.17310476303100586,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592309.116936604,
+          "first_token_ts": 11592309.28981578,
+          "last_token_ts": 11592311.830920344,
+          "prefill_ms": 172.87917621433735,
+          "tpot_ms": 81.9711149820397,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_warmup_1_3",
+          "engine_request_id": "182",
+          "enqueue_request_id": "182-9e23dad7",
+          "prompt_sha256": "ea0eb7bf0f21699c3e98769ffeea6b79f3ef71d39a4389ca1511ad111203efe6",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647241.7294807,
+            "queued_ts": 11592309.116919592,
+            "scheduled_ts": 11592309.116936604,
+            "first_token_ts": 11592309.28981578,
+            "last_token_ts": 11592311.830920344,
+            "first_token_latency": 0.1730043888092041,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592309.116936604,
+          "first_token_ts": 11592309.28981578,
+          "last_token_ts": 11592311.830920344,
+          "prefill_ms": 172.87917621433735,
+          "tpot_ms": 81.9711149820397,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_warmup_1_4",
+          "engine_request_id": "183",
+          "enqueue_request_id": "183-a89a3e44",
+          "prompt_sha256": "57099011a000d049e80d9181c003f07c57f15d08909e570851f997d4dcc11bab",
+          "status": "success"
+        }
+      ]
+    }
+  ],
+  "samples": [
+    {
+      "repeat_id": "repeat_1",
+      "successful_requests": 4,
+      "scheduled_spread_ms": 0.0,
+      "first_token_spread_ms": 0.0,
+      "enqueue_time_ms": 0.5079116672277451,
+      "enqueued_request_ids": [
+        "184-a40106ce",
+        "185-a4174cdf",
+        "186-b7c7aded",
+        "187-82ad56c4"
+      ],
+      "batch_wall_time_ms": 2682.938940823078,
+      "metric_name": "mean_engine_tpot_ms",
+      "observed_iteration_ms": 80.96634722765415,
+      "requests": [
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647244.4442542,
+            "queued_ts": 11592311.8317638,
+            "scheduled_ts": 11592311.832097173,
+            "first_token_ts": 11592312.004347572,
+            "last_token_ts": 11592314.514304336,
+            "first_token_latency": 0.1727592945098877,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592311.832097173,
+          "first_token_ts": 11592312.004347572,
+          "last_token_ts": 11592314.514304336,
+          "prefill_ms": 172.25039936602116,
+          "tpot_ms": 80.96634722765415,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_1_1",
+          "engine_request_id": "184",
+          "enqueue_request_id": "184-a40106ce",
+          "prompt_sha256": "6cbcb65e5ac0e954494589ba277da4bb80a61120d193d8bf5df402fbd2c7f65a",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647244.4444222,
+            "queued_ts": 11592311.83187858,
+            "scheduled_ts": 11592311.832097173,
+            "first_token_ts": 11592312.004347572,
+            "last_token_ts": 11592314.514304336,
+            "first_token_latency": 0.1725912094116211,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592311.832097173,
+          "first_token_ts": 11592312.004347572,
+          "last_token_ts": 11592314.514304336,
+          "prefill_ms": 172.25039936602116,
+          "tpot_ms": 80.96634722765415,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_1_2",
+          "engine_request_id": "185",
+          "enqueue_request_id": "185-a4174cdf",
+          "prompt_sha256": "c748359bd5cf7a34a0a197ad7e04e615e1ed73c6cfcdc8ffa3a306f1dd37e5b8",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647244.4445355,
+            "queued_ts": 11592311.831979113,
+            "scheduled_ts": 11592311.832097173,
+            "first_token_ts": 11592312.004347572,
+            "last_token_ts": 11592314.514304336,
+            "first_token_latency": 0.17247796058654785,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592311.832097173,
+          "first_token_ts": 11592312.004347572,
+          "last_token_ts": 11592314.514304336,
+          "prefill_ms": 172.25039936602116,
+          "tpot_ms": 80.96634722765415,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_1_3",
+          "engine_request_id": "186",
+          "enqueue_request_id": "186-b7c7aded",
+          "prompt_sha256": "5a0495128f3c559efe09c01454e90e644b9ef8d2abb58876080e6c0fc7fcd679",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647244.4446354,
+            "queued_ts": 11592311.83208662,
+            "scheduled_ts": 11592311.832097173,
+            "first_token_ts": 11592312.004347572,
+            "last_token_ts": 11592314.514304336,
+            "first_token_latency": 0.1723780632019043,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592311.832097173,
+          "first_token_ts": 11592312.004347572,
+          "last_token_ts": 11592314.514304336,
+          "prefill_ms": 172.25039936602116,
+          "tpot_ms": 80.96634722765415,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_1_4",
+          "engine_request_id": "187",
+          "enqueue_request_id": "187-82ad56c4",
+          "prompt_sha256": "192c7c7d488f8378d59eb15f25c071be868e373f8b98ea78e96d189d6b91fab7",
+          "status": "success"
+        }
+      ]
+    },
+    {
+      "repeat_id": "repeat_2",
+      "successful_requests": 4,
+      "scheduled_spread_ms": 0.0,
+      "first_token_spread_ms": 0.0,
+      "enqueue_time_ms": 0.5071144551038742,
+      "enqueued_request_ids": [
+        "188-942673a3",
+        "189-94b3d143",
+        "190-97e5382a",
+        "191-be712ca9"
+      ],
+      "batch_wall_time_ms": 2622.325362637639,
+      "metric_name": "mean_engine_tpot_ms",
+      "observed_iteration_ms": 79.0222538334708,
+      "requests": [
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647247.127647,
+            "queued_ts": 11592314.515157923,
+            "scheduled_ts": 11592314.515486946,
+            "first_token_ts": 11592314.68739327,
+            "last_token_ts": 11592317.13708314,
+            "first_token_latency": 0.17241287231445312,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592314.515486946,
+          "first_token_ts": 11592314.68739327,
+          "last_token_ts": 11592317.13708314,
+          "prefill_ms": 171.90632410347462,
+          "tpot_ms": 79.0222538334708,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_2_1",
+          "engine_request_id": "188",
+          "enqueue_request_id": "188-942673a3",
+          "prompt_sha256": "e575eb6c14b55dabebc882795d30e0542639f1cf3640fa790315283617e2cc92",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647247.1278172,
+            "queued_ts": 11592314.515276344,
+            "scheduled_ts": 11592314.515486946,
+            "first_token_ts": 11592314.68739327,
+            "last_token_ts": 11592317.13708314,
+            "first_token_latency": 0.1722426414489746,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592314.515486946,
+          "first_token_ts": 11592314.68739327,
+          "last_token_ts": 11592317.13708314,
+          "prefill_ms": 171.90632410347462,
+          "tpot_ms": 79.0222538334708,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_2_2",
+          "engine_request_id": "189",
+          "enqueue_request_id": "189-94b3d143",
+          "prompt_sha256": "824ba8b3481bd2ee18b53831b391c3dc5fd6e5678b984d501a81208987ea07ae",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647247.1279335,
+            "queued_ts": 11592314.515380304,
+            "scheduled_ts": 11592314.515486946,
+            "first_token_ts": 11592314.68739327,
+            "last_token_ts": 11592317.13708314,
+            "first_token_latency": 0.17212629318237305,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592314.515486946,
+          "first_token_ts": 11592314.68739327,
+          "last_token_ts": 11592317.13708314,
+          "prefill_ms": 171.90632410347462,
+          "tpot_ms": 79.0222538334708,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_2_3",
+          "engine_request_id": "190",
+          "enqueue_request_id": "190-97e5382a",
+          "prompt_sha256": "1e2347142ca5dece1c93c839b7cd5502e2eff3233b8fd5407ccf6a8d94cbc68c",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647247.128037,
+            "queued_ts": 11592314.515476055,
+            "scheduled_ts": 11592314.515486946,
+            "first_token_ts": 11592314.68739327,
+            "last_token_ts": 11592317.13708314,
+            "first_token_latency": 0.17202281951904297,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592314.515486946,
+          "first_token_ts": 11592314.68739327,
+          "last_token_ts": 11592317.13708314,
+          "prefill_ms": 171.90632410347462,
+          "tpot_ms": 79.0222538334708,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_2_4",
+          "engine_request_id": "191",
+          "enqueue_request_id": "191-be712ca9",
+          "prompt_sha256": "1e132c0eaacad7df0e107dd9bba17335782e83ff18fa3d5033c9e3eaf9e24373",
+          "status": "success"
+        }
+      ]
+    },
+    {
+      "repeat_id": "repeat_3",
+      "successful_requests": 4,
+      "scheduled_spread_ms": 0.0,
+      "first_token_spread_ms": 0.0,
+      "enqueue_time_ms": 0.5024243146181107,
+      "enqueued_request_ids": [
+        "192-bc28d21f",
+        "193-888f443f",
+        "194-bd7ea243",
+        "195-a1060d34"
+      ],
+      "batch_wall_time_ms": 2583.201015368104,
+      "metric_name": "mean_engine_tpot_ms",
+      "observed_iteration_ms": 77.7633092816799,
+      "requests": [
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647249.7504346,
+            "queued_ts": 11592317.137952408,
+            "scheduled_ts": 11592317.138272572,
+            "first_token_ts": 11592317.310055092,
+            "last_token_ts": 11592319.72071768,
+            "first_token_latency": 0.1722874641418457,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592317.138272572,
+          "first_token_ts": 11592317.310055092,
+          "last_token_ts": 11592319.72071768,
+          "prefill_ms": 171.78251966834068,
+          "tpot_ms": 77.7633092816799,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_3_1",
+          "engine_request_id": "192",
+          "enqueue_request_id": "192-bc28d21f",
+          "prompt_sha256": "d0c18dae9d6828a5b8e0ebd756083201057d0aaa5728b64b8c51851c627e8d11",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647249.7506115,
+            "queued_ts": 11592317.13806712,
+            "scheduled_ts": 11592317.138272572,
+            "first_token_ts": 11592317.310055092,
+            "last_token_ts": 11592319.72071768,
+            "first_token_latency": 0.17211055755615234,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592317.138272572,
+          "first_token_ts": 11592317.310055092,
+          "last_token_ts": 11592319.72071768,
+          "prefill_ms": 171.78251966834068,
+          "tpot_ms": 77.7633092816799,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_3_2",
+          "engine_request_id": "193",
+          "enqueue_request_id": "193-888f443f",
+          "prompt_sha256": "6afdc372ed78afd7af5627de415940ba843ff9b8ef2709bd2d4a247e2b8932fe",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647249.750724,
+            "queued_ts": 11592317.13816677,
+            "scheduled_ts": 11592317.138272572,
+            "first_token_ts": 11592317.310055092,
+            "last_token_ts": 11592319.72071768,
+            "first_token_latency": 0.1719980239868164,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592317.138272572,
+          "first_token_ts": 11592317.310055092,
+          "last_token_ts": 11592319.72071768,
+          "prefill_ms": 171.78251966834068,
+          "tpot_ms": 77.7633092816799,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_3_3",
+          "engine_request_id": "194",
+          "enqueue_request_id": "194-bd7ea243",
+          "prompt_sha256": "c8c3b53ec0a2e6ab8172663ed6a5cf8190822f227284d0789e0d650f39d44859",
+          "status": "success"
+        },
+        {
+          "metrics": {
+            "num_generation_tokens": 32,
+            "arrival_time": 1789647249.750823,
+            "queued_ts": 11592317.13826132,
+            "scheduled_ts": 11592317.138272572,
+            "first_token_ts": 11592317.310055092,
+            "last_token_ts": 11592319.72071768,
+            "first_token_latency": 0.17189908027648926,
+            "is_corrupted": false
+          },
+          "scheduled_ts": 11592317.138272572,
+          "first_token_ts": 11592317.310055092,
+          "last_token_ts": 11592319.72071768,
+          "prefill_ms": 171.78251966834068,
+          "tpot_ms": 77.7633092816799,
+          "actual_prompt_tokens": 512,
+          "actual_output_tokens": 32,
+          "timing_source": "scheduled_ts_to_first_token_ts",
+          "error": null,
+          "request_id": "offline_decode_repeat_3_4",
+          "engine_request_id": "195",
+          "enqueue_request_id": "195-a1060d34",
+          "prompt_sha256": "9137d4cba407345fe8b2dd58b95cd137b494bf77102e9b12f06833b22e91966d",
+          "status": "success"
+        }
+      ]
+    }
+  ],
+  "summary": {
+    "count": 3,
+    "mean_ms": 79.25063678093495,
+    "std_ms": 1.3175689985365877,
+    "min_ms": 77.7633092816799,
+    "p50_ms": 79.0222538334708,
+    "p90_ms": 80.57752854881748,
+    "p99_ms": 80.92746535977048,
+    "max_ms": 80.96634722765415
+  },
+  "valid": true,
+  "fixed_batch_valid": true,
+  "validity": {
+    "timing_metrics_complete": true,
+    "output_shape_valid": true,
+    "output_shape_errors": [],
+    "scheduled_cohort_valid": true,
+    "first_token_cohort_valid": true,
+    "max_observed_scheduled_spread_ms": 0.0,
+    "max_observed_first_token_spread_ms": 0.0
+  },
+  "limitations": [
+    "Offline engine-service truth excludes HTTP, tokenization and client overhead.",
+    "Decode TPOT spans a growing KV length; --length is the initial KV length.",
+    "Cross-hardware comparisons must use this same offline protocol on every device."
+  ]
+}

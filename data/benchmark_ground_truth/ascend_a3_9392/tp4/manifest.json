@@ -1,0 +1,29 @@
+{
+  "schema_version": 1,
+  "experiment_type": "fixed_batch_suite_manifest",
+  "collector_mode": "offline",
+  "tp_size": 4,
+  "submission_mode": "offline_enqueue_barrier",
+  "deployment_config": "/workspace/llm-simulator/configs/fixed_batch_ascend_a3_tp4.json",
+  "hardware_metadata_file": "/workspace/llm-simulator/data/hardware/atlas900_a3_9392.json",
+  "files": [
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b1_l128.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b1_l512.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b1_l1024.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b4_l128.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b4_l512.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b4_l1024.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b8_l128.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b8_l512.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/prefill_b8_l1024.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b1_l128.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b1_l512.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b1_l1024.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b4_l128.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b4_l512.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b4_l1024.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b8_l128.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b8_l512.json",
+    "/workspace/llm-simulator/data/benchmark_ground_truth/ascend_a3_9392/tp4/decode_b8_l1024.json"
+  ]
+}

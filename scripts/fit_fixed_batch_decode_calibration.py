@@ -103,7 +103,8 @@ def main() -> int:
     for path in args.inputs:
         payload = json.loads(path.read_text(encoding="utf-8"))
         config = payload.get("configuration", {})
-        if (payload.get("collector") != "vllm_fixed_batch_streaming" or
+        if (payload.get("collector") not in {
+                "vllm_fixed_batch_streaming", "vllm_fixed_batch_offline"} or
                 payload.get("valid") is not True or
                 config.get("stage") != "decode"):
             raise ValueError(f"not a valid Decode calibration point: {path}")

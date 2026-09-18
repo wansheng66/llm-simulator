@@ -43,7 +43,8 @@ def load_measurement(path: Path) -> Dict:
     payload = json.loads(path.read_text(encoding="utf-8"))
     if payload.get("schema_version") != 2:
         raise ValueError(f"unsupported fixed-batch schema: {path}")
-    if payload.get("collector") != "vllm_fixed_batch_streaming":
+    if payload.get("collector") not in {
+            "vllm_fixed_batch_streaming", "vllm_fixed_batch_offline"}:
         raise ValueError(f"unsupported collector: {path}")
     if not payload.get("valid") or not payload.get("summary"):
         raise ValueError(f"invalid fixed-batch measurement: {path}")

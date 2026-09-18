@@ -22,7 +22,10 @@ from typing import Dict, Iterable, List, Mapping, Optional, Sequence
 
 
 SCHEMA_VERSION = 2
-SAFE_ENV_PREFIXES = ("CUDA_", "NCCL_", "VLLM_", "TORCH_")
+SAFE_ENV_PREFIXES = (
+    "CUDA_", "NCCL_", "VLLM_", "TORCH_",
+    "ASCEND_", "HCCL_", "NPU_", "PYTORCH_NPU_",
+)
 SENSITIVE_ENV_FRAGMENTS = ("KEY", "TOKEN", "SECRET", "PASSWORD", "CREDENTIAL")
 
 
@@ -77,7 +80,9 @@ def _command(command: Sequence[str], timeout: float = 10.0) -> Optional[str]:
             timeout=timeout, encoding="utf-8", errors="replace")
     except (FileNotFoundError, subprocess.SubprocessError):
         return None
-    output = (completed.stdout or completed.stderr).strip()
+    if completed.returncode != 0:
+        return None
+    output = completed.stdout.strip()
     return output or None
 
 
@@ -122,6 +127,48 @@ def _torch_runtime() -> Dict:
         except Exception:
             result["cudnn_version"] = None
     return result
+
+
+def _ascend_runtime() -> Dict:
+    """Collect Ascend information without requiring the collector to own an NPU.
+
+    HTTP-only collectors intentionally run with Torch backend auto-loading
+    disabled.  In that mode importing torch_npu may fail or be undesirable, so
+    package versions and npu-smi output are collected independently.
+    """
+    package_versions = _package_versions(("torch-npu", "vllm-ascend"))
+    npu_list = _command(["npu-smi", "info", "-l"])
+    npu_info = _command(["npu-smi", "info"], timeout=20.0)
+    cann_version = None
+    checked_paths = (
+        Path("/usr/local/Ascend/ascend-toolkit/latest/version.cfg"),
+        Path("/usr/local/Ascend/ascend-toolkit/latest/version.info"),
+        Path("/usr/local/Ascend/cann/version.info"),
+        Path("/usr/local/Ascend/cann/version.cfg"),
+        Path("/usr/local/Ascend/driver/version.info"),
+    )
+    for path in checked_paths:
+        try:
+            if path.is_file():
+                cann_version = path.read_text(
+                    encoding="utf-8", errors="replace").strip()
+                if cann_version:
+                    break
+        except OSError:
+            continue
+    return {
+        "available": bool(npu_list or npu_info or package_versions["torch-npu"]),
+        "visible_devices": os.environ.get("ASCEND_RT_VISIBLE_DEVICES"),
+        "torch_npu_version": package_versions["torch-npu"],
+        "vllm_ascend_version": package_versions["vllm-ascend"],
+        "npu_smi_list": npu_list,
+        "npu_smi_info": npu_info,
+        "cann_or_driver_version_file": cann_version,
+        "note": (
+            "NPU visibility may be absent in an HTTP-only collector; the "
+            "authoritative serving allocation is stored in deployment.config"
+        ),
+    }
 
 
 def _model_metadata(model_path: Optional[str]) -> Dict:
@@ -177,14 +224,15 @@ def collect_runtime_metadata(
             "executable": sys.executable,
         },
         "software": _package_versions(
-            ("torch", "vllm", "transformers", "triton", "numpy", "openai",
-             "nvidia-nccl-cu12")),
+            ("torch", "torch-npu", "vllm", "vllm-ascend", "transformers",
+             "triton", "numpy", "openai", "nvidia-nccl-cu12")),
         "torch_runtime": _torch_runtime(),
         "cuda": {
             "visible_devices": os.environ.get("CUDA_VISIBLE_DEVICES"),
             "nvidia_smi_query": gpu_query,
             "topology": topology,
         },
+        "ascend": _ascend_runtime(),
         "model": _model_metadata(model_path),
         "benchmark": dict(benchmark or {}),
         "environment": safe_environment,

@@ -111,9 +111,11 @@ class BenchmarkProtocolTests(unittest.TestCase):
             "collector": "vllm_fixed_batch_streaming",
             "model": "model",
             "valid": True,
+            "fixed_batch_valid": True,
             "configuration": {
                 "stage": "decode", "tp_size": 4, "batch_size": 8,
                 "initial_kv_length": 1024, "measured_batches": 3,
+                "submission_mode": "batched_prompt",
             },
         }
         with tempfile.TemporaryDirectory() as directory:
