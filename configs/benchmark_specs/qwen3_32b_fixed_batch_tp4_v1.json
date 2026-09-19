@@ -1,0 +1,76 @@
+{
+  "schema_version": 1,
+  "protocol_version": "0.1",
+  "benchmark_name": "Qwen3-32B TP4 strict fixed-batch basic grid v1",
+  "benchmark_track": "relative_hardware_basic_grid",
+  "model": {
+    "name": "Qwen3-32B",
+    "model_id": "Qwen/Qwen3-32B",
+    "config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+    "architecture": "dense_decoder_transformer",
+    "attention_type": "GQA",
+    "num_hidden_layers": 64,
+    "hidden_size": 5120,
+    "intermediate_size": 25600,
+    "num_attention_heads": 64,
+    "num_key_value_heads": 8,
+    "head_dim": 128,
+    "dtype": "bfloat16"
+  },
+  "deployment": {
+    "tensor_parallel_size": 4,
+    "max_model_len": 8192,
+    "max_num_batched_tokens": 8192,
+    "max_num_seqs": 32,
+    "block_size_tokens": 16,
+    "enforce_eager": true,
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": false
+  },
+  "measurement": {
+    "submission_mode": "offline_enqueue_barrier",
+    "warmup_batches": 2,
+    "measured_batches": 7,
+    "maximum_cv_pct": 3.0
+  },
+  "fairness": {
+    "primary_track": "iso_workload",
+    "iso_workload_rule": "same model config, dtype, TP, batch, length and measurement policy",
+    "oom_policy": "mark infeasible; never reduce batch inside the primary score"
+  },
+  "workloads": {
+    "prefill": [
+      {"case": "P_B1_L128", "batch_size": 1, "prompt_length": 128},
+      {"case": "P_B1_L512", "batch_size": 1, "prompt_length": 512},
+      {"case": "P_B1_L1024", "batch_size": 1, "prompt_length": 1024},
+      {"case": "P_B4_L128", "batch_size": 4, "prompt_length": 128},
+      {"case": "P_B4_L512", "batch_size": 4, "prompt_length": 512},
+      {"case": "P_B4_L1024", "batch_size": 4, "prompt_length": 1024},
+      {"case": "P_B8_L128", "batch_size": 8, "prompt_length": 128},
+      {"case": "P_B8_L512", "batch_size": 8, "prompt_length": 512},
+      {"case": "P_B8_L1024", "batch_size": 8, "prompt_length": 1024}
+    ],
+    "decode": [
+      {"case": "D_B1_KV128", "batch_size": 1, "kv_length": 128},
+      {"case": "D_B1_KV512", "batch_size": 1, "kv_length": 512},
+      {"case": "D_B1_KV1024", "batch_size": 1, "kv_length": 1024},
+      {"case": "D_B4_KV128", "batch_size": 4, "kv_length": 128},
+      {"case": "D_B4_KV512", "batch_size": 4, "kv_length": 512},
+      {"case": "D_B4_KV1024", "batch_size": 4, "kv_length": 1024},
+      {"case": "D_B8_KV128", "batch_size": 8, "kv_length": 128},
+      {"case": "D_B8_KV512", "batch_size": 8, "kv_length": 512},
+      {"case": "D_B8_KV1024", "batch_size": 8, "kv_length": 1024}
+    ]
+  },
+  "score": {
+    "per_case": "candidate throughput / reference throughput",
+    "stage_aggregation": "geometric_mean",
+    "combined_score": null,
+    "reason": "Prefill and Decode are reported separately until a P/D traffic mix is declared"
+  },
+  "scope": {
+    "measured_case_count": 18,
+    "coverage": "basic_grid_complete",
+    "not_claimed": "the longer-context B16/B32 target protocol is not covered by this dataset"
+  }
+}

@@ -1,4 +1,11 @@
+.venv/
+venv/
 __pycache__/
-*.py[cod]
-.pytest_cache/
-.coverage
+*.pyc
+tasks.json
+benchmark_reports/
+logs/
+models/
+data/
+.ssh/
+*.log

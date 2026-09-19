@@ -131,6 +131,29 @@ class Stage2ProfilingTests(unittest.TestCase):
         self.assertIn(result["estimated_bottleneck"],
                       {"attention", "ffn", "collective", "balanced"})
 
+    def test_collective_profile_can_use_robust_p50(self):
+        payload = {
+            "schema_version": 2,
+            "profile_type": "collective",
+            "metadata": {},
+            "measurements": [{
+                "status": "success",
+                "operation": "all_reduce",
+                "world_size": 4,
+                "message_size_mb_per_rank": 16,
+                "timing": {"mean_ms": 4.0, "p50_ms": 0.4},
+            }],
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "collective_profile_tp4.json"
+            path.write_text(json.dumps(payload), encoding="utf-8")
+            mean = LLMCostModel._load_collective_profiles(
+                Path(directory), "mean_ms")
+            median = LLMCostModel._load_collective_profiles(
+                Path(directory), "p50_ms")
+        self.assertEqual(mean[4][0]["allreduce_ms"], 4.0)
+        self.assertEqual(median[4][0]["allreduce_ms"], 0.4)
+
     def test_fixed_batch_resume_only_reuses_matching_valid_point(self):
         payload = {
             "schema_version": 2,

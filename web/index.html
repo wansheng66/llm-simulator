@@ -119,8 +119,8 @@
                 <button class="btn btn-primary" onclick="loadRelativeComparison()">比较</button>
             </div>
             <div class="metric-row">
-                <div class="metric"><div id="prefillSpeedup" class="value">—</div><div class="label">预测 P-Score</div><div id="prefillValidation" class="label"></div></div>
-                <div class="metric"><div id="decodeSpeedup" class="value">—</div><div class="label">预测 D-Score</div><div id="decodeValidation" class="label"></div></div>
+                <div class="metric"><div id="prefillSpeedup" class="value">—</div><div class="label">P-Score</div><div id="prefillValidation" class="label"></div></div>
+                <div class="metric"><div id="decodeSpeedup" class="value">—</div><div class="label">D-Score</div><div id="decodeValidation" class="label"></div></div>
                 <div class="metric"><div id="pairedCases" class="value">—</div><div class="label">有效配对 Case</div></div>
             </div>
             <div id="relativeExplanation" class="protocol-note" style="margin-top:12px;">请选择相同 TP 的两套硬件。</div>
@@ -251,9 +251,9 @@
         <div class="flex-between" style="margin-bottom: 8px;">
             <h2 style="margin:0;">📊 推理性能雷达图 <span class="badge">归一化对比</span></h2>
             <div class="radar-controls">
-                <button class="btn-sm active" data-mode="L20">L20</button>
-                <button class="btn-sm" data-mode="RTX5090">RTX5090</button>
-                <button class="btn-sm" data-mode="best">极限对比</button>
+                <button class="btn-sm active" data-mode="verified">真实固定 Batch</button>
+                <button class="btn-sm" data-mode="all">全部硬件</button>
+                <button class="btn-sm" data-mode="legacy">旧报告</button>
             </div>
         </div>
         <div class="chart-container">
@@ -285,7 +285,7 @@
     let currentTaskId = null;
     let logPollingInterval = null;
     let chartInstances = {};
-    let radarMode = 'L20'; // 当前雷达图模式
+    let radarMode = 'verified'; // 当前雷达图模式
     let benchmarkOptions = [];
 
     // ================= 显示/隐藏弹窗 =================
@@ -349,7 +349,9 @@
             document.getElementById('workloadSummary').innerHTML =
                 `<strong>${spec.model.name}</strong> · ${spec.model.dtype} · ${spec.model.attention_type}<br>` +
                 `Prefill：${p}<br>Decode：${d}<br>` +
-                `<strong>公平性：</strong>固定负载排名中 OOM 记为不可行，禁止偷偷降低 Batch；硬件最优 Batch 另列为 best-feasible。`;
+                `<strong>覆盖：</strong>${spec.scope.measured_case_count}/18 基础网格完整，当前仅验证 TP=${spec.deployment.tensor_parallel_size}；` +
+                `更长上下文和 B16/B32 不在本版结论范围内。<br>` +
+                `<strong>公平性：</strong>固定负载排名中 OOM 记为不可行，禁止偷偷降低 Batch。`;
             populateComparisonSelectors();
         } catch (error) {
             document.getElementById('workloadSummary').textContent = `规范加载失败：${error.message}`;
@@ -393,6 +395,20 @@
         document.getElementById('decodeSpeedup').textContent = fmt(result.scores.decode_speedup);
         document.getElementById('pairedCases').textContent = result.scores.paired_prefill_cases + result.scores.paired_decode_cases;
         const validation = result.validation || {};
+        if (result.score_kind === 'measured_ground_truth') {
+            const winners = result.winner_counts || {};
+            const pWins = winners.prefill || {};
+            const dWins = winners.decode || {};
+            document.getElementById('prefillValidation').textContent =
+                `真实 Ground Truth · 候选胜 ${pWins.candidate || 0}/${result.scores.paired_prefill_cases}`;
+            document.getElementById('decodeValidation').textContent =
+                `真实 Ground Truth · 候选胜 ${dWins.candidate || 0}/${result.scores.paired_decode_cases}`;
+            document.getElementById('relativeExplanation').textContent =
+                `${candidate} 相对 ${reference}。${result.status_explanation}；` +
+                `P-Score/D-Score 均为实测吞吐几何平均倍率；` +
+                `CV 验收门槛 ${validation.max_cv_pct}%；综合分需先明确 P/D 负载比例。`;
+            return;
+        }
         document.getElementById('prefillValidation').textContent = validation.ground_truth_complete
             ? `真实 ${fmt(validation.ground_truth_prefill_speedup)} · 误差 ${validation.prefill_score_error_pct.toFixed(1)}%`
             : '尚无真实 A/B 数据';
@@ -541,19 +557,20 @@
 
         // 1. 雷达图（根据模式过滤）
         const radarCtx = document.getElementById('radarChart').getContext('2d');
-        const dimensions = ['P_S', 'P_M', 'P_L', 'D_L', 'D_M'];
-        const dimLabels = ['Prefill S', 'Prefill M', 'Prefill L', 'Decode L', 'Decode M'];
+        const hasFixedBatch = data.some(d => d.data_source === 'fixed_batch_ground_truth');
+        const dimensions = hasFixedBatch
+            ? ['P_B1_L512', 'P_B4_L1024', 'P_B8_L1024', 'D_B1_KV512', 'D_B8_KV1024']
+            : ['P_S', 'P_M', 'P_L', 'D_L', 'D_M'];
+        const dimLabels = hasFixedBatch
+            ? ['P B1/L512', 'P B4/L1024', 'P B8/L1024', 'D B1/KV512', 'D B8/KV1024']
+            : ['Prefill S', 'Prefill M', 'Prefill L', 'Decode L', 'Decode M'];
         let radarData = [];
-        if (radarMode === 'L20') {
-            radarData = data.filter(d => d.gpu === 'L20');
-        } else if (radarMode === 'RTX5090') {
-            radarData = data.filter(d => d.gpu === 'RTX5090');
-        } else { // best
-            // 取 L20 和 RTX5090 中 TP 最大的（或指定的 TP=8）
-            const l20_best = data.find(d => d.gpu === 'L20' && d.tp === 8);
-            const rtx_best = data.find(d => d.gpu === 'RTX5090' && d.tp === 8);
-            if (l20_best) radarData.push(l20_best);
-            if (rtx_best) radarData.push(rtx_best);
+        if (radarMode === 'verified') {
+            radarData = data.filter(d => d.data_source === 'fixed_batch_ground_truth');
+        } else if (radarMode === 'legacy') {
+            radarData = data.filter(d => d.data_source !== 'fixed_batch_ground_truth');
+        } else {
+            radarData = data;
         }
         if (radarData.length === 0) {
             // fallback: 显示所有数据，避免空白
@@ -579,10 +596,10 @@
                 datasets: radarData.map((d, i) => ({
                     label: `${d.gpu} (TP=${d.tp})`,
                     data: dimensions.map(dim => ((d.case_scores?.[dim] || 0) / maxValues[dim])),
-                    borderColor: radarColors[i % radarColors.length],
-                    backgroundColor: radarColors[i % radarColors.length] + '33',
+                    borderColor: d.color || radarColors[i % radarColors.length],
+                    backgroundColor: (d.color || radarColors[i % radarColors.length]) + '33',
                     fill: true,
-                    pointBackgroundColor: radarColors[i % radarColors.length],
+                    pointBackgroundColor: d.color || radarColors[i % radarColors.length],
                     pointRadius: 4,
                     borderWidth: 2
                 }))
@@ -703,21 +720,27 @@
                         <th>Prefill Avg (tok/s)</th>
                         <th>Decode Avg (tok/s)</th>
                         <th>旧综合评分（不用于排名）</th>
+                        <th>数据来源</th>
                         <th>性价比 (分/元)</th>
                     </tr>
                 </thead>
                 <tbody>
         `;
         data.forEach(d => {
-            const gpuClass = d.gpu.includes('L20') ? 'gpu-nvidia' : 
-                            d.gpu.includes('昇腾') ? 'gpu-huawei' : 'gpu-other';
+            const lowerGpu = d.gpu.toLowerCase();
+            const gpuClass = lowerGpu.includes('l20') || lowerGpu.includes('nvidia') ? 'gpu-nvidia' :
+                            lowerGpu.includes('昇腾') || lowerGpu.includes('ascend') || lowerGpu.includes('atlas') ? 'gpu-huawei' : 'gpu-other';
+            const sourceLabel = d.data_source === 'fixed_batch_ground_truth'
+                ? '真实固定 Batch'
+                : '旧报告';
             html += `
                 <tr>
                     <td><span class="gpu-tag ${gpuClass}">${d.gpu}</span></td>
                     <td>${d.tp || 1}</td>
                     <td>${d.prefill_avg?.toFixed(2) || 0}</td>
                     <td>${d.decode_avg?.toFixed(2) || 0}</td>
-                    <td><strong>${d.combined_score?.toFixed(2) || 0}</strong></td>
+                    <td><strong>${d.combined_score == null ? '—' : d.combined_score.toFixed(2)}</strong></td>
+                    <td>${sourceLabel}</td>
                     <td>${d.price_performance ? d.price_performance.toFixed(4) : '-'}</td>
                 </tr>
             `;

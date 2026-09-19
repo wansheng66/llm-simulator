@@ -44,7 +44,8 @@ class LLMCostModel:
                  calibration_file: Optional[str] = None,
                  enable_e2e_compensation: bool = False,
                  operator_profile_dir: Optional[str] = None,
-                 collective_profile_dir: Optional[str] = None, **legacy_kwargs):
+                 collective_profile_dir: Optional[str] = None,
+                 profile_statistic: str = "mean", **legacy_kwargs):
         self.data_dir = Path(data_dir)
         self.model = model
         self.hardware = hardware or HardwareSpec(
@@ -53,18 +54,22 @@ class LLMCostModel:
         self.peak_tflops = peak_tflops
         self.mem_bw_gb_s = mem_bw_gb_s
         self.enable_e2e_compensation = enable_e2e_compensation
+        if profile_statistic not in {"mean", "p50"}:
+            raise ValueError("profile_statistic must be 'mean' or 'p50'")
+        self.profile_statistic = profile_statistic
+        timing_key = f"{profile_statistic}_ms"
         self.calibration = self._load_calibration(calibration_file)
         self.compute_table = self._load_required("qwen3_32b_prefill_lookup_table.json")
         self.decode_table = self._load_required("qwen3_32b_decode_lookup_table.json")
         self.operator_profile_tables = self._load_operator_profiles(
             Path(operator_profile_dir) if operator_profile_dir else
-            self.data_dir / "operator_profiles")
+            self.data_dir / "operator_profiles", timing_key)
         tables = {tp: self._load_optional(f"comm_lookup_table_tp{tp}.json")
                   for tp in (1, 2, 4, 8)}
         self.comm_tables = {key: value for key, value in tables.items() if value}
         measured_collectives = self._load_collective_profiles(
             Path(collective_profile_dir) if collective_profile_dir else
-            self.data_dir / "collective_profiles")
+            self.data_dir / "collective_profiles", timing_key)
         self.comm_tables.update(measured_collectives)
         self.collective_profile_tps = set(measured_collectives)
         self.num_layers = model.num_layers
@@ -95,7 +100,9 @@ class LLMCostModel:
         return data if isinstance(data, list) else []
 
     @staticmethod
-    def _load_operator_profiles(directory: Path) -> Dict[int, Dict[str, List[Dict]]]:
+    def _load_operator_profiles(
+        directory: Path, timing_key: str = "mean_ms",
+    ) -> Dict[int, Dict[str, List[Dict]]]:
         """Load schema-v2 sharded compute profiles, retaining legacy fallback."""
         result: Dict[int, Dict[str, List[Dict]]] = {}
         if not directory.exists():
@@ -120,8 +127,10 @@ class LLMCostModel:
                 layer = measurement["single_layer"]
                 row = {"batch_size": int(shape["batch_size"])}
                 for operator, timing in measurement.get("operators", {}).items():
-                    if isinstance(timing, dict) and timing.get("mean_ms") is not None:
-                        row[f"operator::{operator}"] = float(timing["mean_ms"])
+                    if isinstance(timing, dict):
+                        value = timing.get(timing_key, timing.get("mean_ms"))
+                        if value is not None:
+                            row[f"operator::{operator}"] = float(value)
                 if stage == "prefill":
                     row.update({
                         "prompt_length": int(shape["prompt_length"]),
@@ -141,7 +150,9 @@ class LLMCostModel:
         }
 
     @staticmethod
-    def _load_collective_profiles(directory: Path) -> Dict[int, List[Dict]]:
+    def _load_collective_profiles(
+        directory: Path, timing_key: str = "mean_ms",
+    ) -> Dict[int, List[Dict]]:
         result: Dict[int, List[Dict]] = {}
         if not directory.exists():
             return result
@@ -155,10 +166,16 @@ class LLMCostModel:
                         measurement.get("operation") != "all_reduce"):
                     continue
                 tp_size = int(measurement["world_size"])
+                timing = measurement["timing"]
+                value = timing.get(timing_key, timing.get("mean_ms"))
+                if value is None:
+                    raise ValueError(
+                        f"collective timing is missing {timing_key}: {path}")
                 result.setdefault(tp_size, []).append({
                     "world_size": tp_size,
                     "msg_size_mb": float(measurement["message_size_mb_per_rank"]),
-                    "allreduce_ms": float(measurement["timing"]["mean_ms"]),
+                    "allreduce_ms": float(value),
+                    "timing_statistic": timing_key,
                 })
         return result
 
@@ -376,6 +393,7 @@ class LLMCostModel:
         result["communication_profile_source"] = (
             "schema_v2_collective_profile" if tp_size in self.collective_profile_tps
             else "legacy_collective_profile")
+        result["profile_timing_statistic"] = self.profile_statistic
         result["seq_len" if stage == "prefill" else "kv_len"] = length
         operator_breakdown = {
             "attention_ms": attention * self.num_layers * factor,

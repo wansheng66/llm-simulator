@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-"""Measure TP collectives with torch.distributed/NCCL using a uniform schema.
-    测量真实 NCCL 通信
-"""
+"""Measure TP collectives with NCCL or HCCL using a uniform schema."""
 
 from __future__ import annotations
 
@@ -21,6 +19,7 @@ from scripts.profiling_common import (  # noqa: E402
     describe_ms,
     write_profile,
 )
+from scripts.accelerator_runtime import resolve_accelerator  # noqa: E402
 
 
 def csv_floats(value: str) -> List[float]:
@@ -38,34 +37,38 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--repeats", type=int, default=50)
     parser.add_argument("--dtype", choices=("float16", "bfloat16", "float32"),
                         default="bfloat16")
+    parser.add_argument("--platform", choices=("auto", "cuda", "ascend"),
+                        default="auto")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--keep-samples", action="store_true")
     return parser.parse_args()
 
 
-def _one_cuda_sample(torch, function) -> float:
-    start = torch.cuda.Event(enable_timing=True)
-    end = torch.cuda.Event(enable_timing=True)
+def _one_accelerator_sample(runtime, function) -> float:
+    start = runtime.event()
+    end = runtime.event()
     start.record()
     function()
     end.record()
-    torch.cuda.synchronize()
+    runtime.synchronize()
     return float(start.elapsed_time(end))
 
 
-def distributed_samples(torch, dist, function, warmup: int, repeats: int) -> List[float]:
+def distributed_samples(torch, runtime, dist, function, warmup: int,
+                        repeats: int) -> List[float]:
     for _ in range(warmup):
         dist.barrier()
         function()
-        torch.cuda.synchronize()
+        runtime.synchronize()
     samples = []
-    world_size = dist.get_world_size()
     for _ in range(repeats):
         dist.barrier()
-        local_ms = _one_cuda_sample(torch, function)
-        gathered = [None] * world_size
-        dist.all_gather_object(gathered, local_ms)
-        samples.append(max(float(value) for value in gathered))
+        local_ms = _one_accelerator_sample(runtime, function)
+        maximum = torch.tensor(
+            local_ms, dtype=torch.float32,
+            device=runtime.device(int(os.environ.get("LOCAL_RANK", 0))))
+        dist.all_reduce(maximum, op=dist.ReduceOp.MAX)
+        samples.append(float(maximum.item()))
     return samples
 
 
@@ -77,15 +80,21 @@ def main() -> int:
     import torch.distributed as dist
 
     local_rank = int(os.environ.get("LOCAL_RANK", 0))
-    torch.cuda.set_device(local_rank)
-    device = f"cuda:{local_rank}"
-    cuda_device = torch.device(device)
     try:
-        dist.init_process_group(backend="nccl", device_id=cuda_device)
+        runtime = resolve_accelerator(torch, args.platform)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    runtime.set_device(local_rank)
+    device = runtime.device(local_rank)
+    accelerator_device = torch.device(device)
+    try:
+        dist.init_process_group(
+            backend=runtime.distributed_backend, device_id=accelerator_device)
     except TypeError:  # compatibility with PyTorch releases without device_id
-        dist.init_process_group(backend="nccl")
+        dist.init_process_group(backend=runtime.distributed_backend)
     rank, world_size = dist.get_rank(), dist.get_world_size()
-    p2p_group = (dist.new_group(ranks=[0, 1], backend="nccl")
+    p2p_group = (dist.new_group(
+        ranks=[0, 1], backend=runtime.distributed_backend)
                  if world_size >= 2 else None)
     dtype = getattr(torch, args.dtype)
     bytes_per_element = torch.tensor([], dtype=dtype).element_size()
@@ -116,7 +125,7 @@ def main() -> int:
 
         for operation, function in operations.items():
             samples = distributed_samples(
-                torch, dist, function, args.warmup, args.repeats)
+                torch, runtime, dist, function, args.warmup, args.repeats)
             if rank == 0:
                 timing = describe_ms(samples)
                 if args.keep_samples:
@@ -132,17 +141,18 @@ def main() -> int:
                 print(f"{operation} TP={world_size} {size_mb:g} MB: "
                       f"{timing['mean_ms']:.4f} ms")
         del source, all_gather_output, reduce_scatter_input, reduce_scatter_output
-        torch.cuda.empty_cache()
+        runtime.empty_cache()
 
     if rank == 0:
         benchmark = {
             "kind": "tensor_parallel_collective_microbenchmark",
-            "backend": "nccl",
+            "platform": runtime.platform,
+            "backend": runtime.distributed_backend,
             "world_size": world_size,
             "dtype": args.dtype,
             "warmup": args.warmup,
             "repeats": args.repeats,
-            "timer": "torch.cuda.Event; maximum across ranks",
+            "timer": runtime.timer_name + "; maximum across ranks",
             "message_size_semantics": "payload size per rank",
         }
         payload = {

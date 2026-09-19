@@ -1,15 +1,10 @@
 #!/usr/bin/env python3
-"""Profile Qwen-style tensor-parallel Transformer operators on real CUDA hardware.
+"""Profile Qwen-style tensor-parallel Transformer operators on CUDA or Ascend.
 
 This benchmark measures sharded compute only. Collective communication is kept
 in ``collective_micro_bench.py`` so the cost model can compose and attribute the
 two sources independently. Tensors and weights are allocated outside timed
 regions; every point has warmup runs and a distribution of CUDA-event samples.
-
-在真实 CUDA 硬件上，对 Qwen 风格的张量并行 Transformer 算子进行性能剖析。
-本基准测试只测量计算，而且测量的是分片后的计算。
-集合通信则放在 collective_micro_bench.py 中，这样成本模型就能独立地组合并归因这两个来源。
-张量和权重都在计时区域之外分配；每个测点都有预热运行，并包含 CUDA 事件样本的分布。
 """
 
 from __future__ import annotations
@@ -31,6 +26,10 @@ from scripts.profiling_common import (  # noqa: E402
     describe_ms,
     dominant_component,
     write_profile,
+)
+from scripts.accelerator_runtime import (  # noqa: E402
+    is_out_of_memory,
+    resolve_accelerator,
 )
 
 
@@ -64,7 +63,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--warmup", type=int, default=5)
     parser.add_argument("--repeats", type=int, default=20)
     parser.add_argument("--dtype", choices=("float16", "bfloat16"), default="bfloat16")
-    parser.add_argument("--device", default="cuda:0")
+    parser.add_argument("--platform", choices=("auto", "cuda", "ascend"),
+                        default="auto")
+    parser.add_argument("--device-index", type=int, default=0)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--keep-samples", action="store_true")
     return parser.parse_args()
@@ -87,20 +88,21 @@ def load_model_config(model: str | None) -> Tuple[Dict, str]:
     return config, source
 
 
-def benchmark_cuda(torch, function, warmup: int, repeats: int) -> List[float]:
+def benchmark_accelerator(runtime, function, warmup: int,
+                          repeats: int) -> List[float]:
     if warmup < 0 or repeats <= 0:
         raise ValueError("warmup must be non-negative and repeats must be positive")
     for _ in range(warmup):
         function()
-    torch.cuda.synchronize()
+    runtime.synchronize()
     samples = []
     for _ in range(repeats):
-        start = torch.cuda.Event(enable_timing=True)
-        end = torch.cuda.Event(enable_timing=True)
+        start = runtime.event()
+        end = runtime.event()
         start.record()
         function()
         end.record()
-        torch.cuda.synchronize()
+        runtime.synchronize()
         samples.append(float(start.elapsed_time(end)))
     return samples
 
@@ -116,14 +118,16 @@ def _sdpa(torch, q, k, v, causal: bool):
     try:
         return torch.nn.functional.scaled_dot_product_attention(
             q, k, v, is_causal=causal, enable_gqa=(q.shape[1] != k.shape[1]))
-    except TypeError:  # older PyTorch without enable_gqa
+    except (TypeError, RuntimeError, NotImplementedError):
+        # Older PyTorch and some torch_npu releases do not expose enable_gqa.
+        # Repeating K/V is semantically equivalent and keeps the case usable.
         repeat = q.shape[1] // k.shape[1]
         return torch.nn.functional.scaled_dot_product_attention(
             q, k.repeat_interleave(repeat, dim=1),
             v.repeat_interleave(repeat, dim=1), is_causal=causal)
 
 
-def profile_shape(torch, stage: str, batch: int, length: int, tp_size: int,
+def profile_shape(torch, runtime, stage: str, batch: int, length: int, tp_size: int,
                   model: Dict, dtype, device: str, warmup: int, repeats: int,
                   keep_samples: bool) -> Dict:
     hidden = model["hidden_size"]
@@ -180,7 +184,8 @@ def profile_shape(torch, stage: str, batch: int, length: int, tp_size: int,
         "ffn_residual": lambda: residual_left + residual_right,
     }
     measured = {
-        name: _stats(benchmark_cuda(torch, function, warmup, repeats), keep_samples)
+        name: _stats(benchmark_accelerator(
+            runtime, function, warmup, repeats), keep_samples)
         for name, function in operations.items()
     }
     attention_ms = sum(measured[name]["mean_ms"] for name in
@@ -218,8 +223,12 @@ def main() -> int:
         raise SystemExit("--tp-size must be positive")
     import torch
 
-    if not torch.cuda.is_available():
-        raise SystemExit("CUDA is required for operator profiling")
+    try:
+        runtime = resolve_accelerator(torch, args.platform)
+    except RuntimeError as exc:
+        raise SystemExit(str(exc)) from exc
+    runtime.set_device(args.device_index)
+    device = runtime.device(args.device_index)
     dtype = getattr(torch, args.dtype)
     model, config_source = load_model_config(args.model)
     stages = ("prefill", "decode") if args.stage == "both" else (args.stage,)
@@ -231,9 +240,12 @@ def main() -> int:
                 print(f"profile {stage}: TP={args.tp_size}, batch={batch}, length={length}")
                 try:
                     row = profile_shape(
-                        torch, stage, batch, length, args.tp_size, model, dtype,
-                        args.device, args.warmup, args.repeats, args.keep_samples)
-                except torch.cuda.OutOfMemoryError as exc:
+                        torch, runtime, stage, batch, length, args.tp_size,
+                        model, dtype, device, args.warmup, args.repeats,
+                        args.keep_samples)
+                except Exception as exc:
+                    if not is_out_of_memory(exc):
+                        raise
                     row = {
                         "status": "oom", "stage": stage,
                         "shape": {
@@ -245,18 +257,19 @@ def main() -> int:
                     }
                 measurements.append(row)
                 gc.collect()
-                torch.cuda.empty_cache()
+                runtime.empty_cache()
     benchmark = {
         "kind": "qwen_tensor_parallel_operator_microbenchmark",
         "stage": args.stage,
         "tp_size": args.tp_size,
         "dtype": args.dtype,
-        "device": args.device,
+        "platform": runtime.platform,
+        "device": device,
         "warmup": args.warmup,
         "repeats": args.repeats,
         "model_config_source": config_source,
         "model_config": model,
-        "timer": "torch.cuda.Event",
+        "timer": runtime.timer_name,
         "weights_allocated_outside_timed_region": True,
         "collectives_included": False,
     }

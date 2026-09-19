@@ -31,9 +31,14 @@ app = Flask(__name__, static_folder='.')
 CORS(app)
 
 REPORT_DIR = os.path.join(PROJECT_ROOT, 'data', 'benchmark_reports')
+RELATIVE_REPORT_DIR = os.path.join(PROJECT_ROOT, 'data', 'relative_benchmark')
 TASKS_FILE = os.path.join(PROJECT_ROOT, 'data', 'tasks.json')
 BENCHMARK_SPEC_FILE = os.path.join(
-    PROJECT_ROOT, 'configs', 'benchmark_specs', 'qwen3_32b_v1.json')
+    PROJECT_ROOT, 'configs', 'benchmark_specs',
+    'qwen3_32b_fixed_batch_tp4_v1.json')
+FIXED_BATCH_RELATIVE_PATTERN = os.path.join(
+    PROJECT_ROOT, 'data', 'relative_benchmark', '**',
+    'fixed_batch_relative_report.json')
 
 
 def _latest_report(gpu_type, tp):
@@ -95,6 +100,192 @@ def _ground_truth_ratios(candidate_gpu, reference_gpu, tp):
     return ratios, path
 
 
+def _fixed_batch_relative_reports():
+    """Return accepted real fixed-batch A/B reports, newest first."""
+    reports = []
+    for path in glob.glob(FIXED_BATCH_RELATIVE_PATTERN, recursive=True):
+        try:
+            with open(path, 'r', encoding='utf-8') as handle:
+                payload = json.load(handle)
+            if payload.get('experiment_type') != 'fixed_batch_relative_ground_truth':
+                continue
+            acceptance = payload.get('acceptance', {})
+            if not (acceptance.get('passed') and
+                    acceptance.get('all_points_repeatable') and
+                    int(acceptance.get('paired_point_count', 0)) == 18):
+                continue
+            reports.append((os.path.getmtime(path), path, payload))
+        except (OSError, ValueError, TypeError):
+            continue
+    return sorted(reports, key=lambda item: item[0], reverse=True)
+
+
+def _hardware_color(hardware_id):
+    name = str(hardware_id).lower()
+    if 'l20' in name or 'nvidia' in name:
+        return '#76b900'
+    if any(token in name for token in ('ascend', 'atlas', '昇腾')):
+        return '#e60012'
+    return '#4ecdc4'
+
+
+def _fixed_batch_summary():
+    """Build chart/table rows directly from accepted fixed-batch truth."""
+    rows = {}
+    for _, path, payload in _fixed_batch_relative_reports():
+        tp = int(payload.get('identity', {}).get('tp_size', -1))
+        if tp <= 0:
+            continue
+        sides = {
+            'reference': {
+                'hardware_id': payload.get('reference', {}).get('hardware_id'),
+                'throughput_key': 'reference_throughput_tokens_per_s',
+                'cv_key': 'reference_cv_pct',
+            },
+            'candidate': {
+                'hardware_id': payload.get('candidate', {}).get('hardware_id'),
+                'throughput_key': 'candidate_throughput_tokens_per_s',
+                'cv_key': 'candidate_cv_pct',
+            },
+        }
+        for side in sides.values():
+            hardware_id = side['hardware_id']
+            key = (hardware_id, tp)
+            if not hardware_id or key in rows:
+                continue
+            case_scores = {}
+            prefill_values = []
+            decode_values = []
+            cv_values = []
+            for point in payload.get('points', []):
+                stage = point.get('stage')
+                batch = int(point.get('batch_size', 0))
+                length = int(point.get('representative_length', 0))
+                prefix = 'P' if stage == 'prefill' else 'D'
+                length_name = 'L' if stage == 'prefill' else 'KV'
+                case_name = f'{prefix}_B{batch}_{length_name}{length}'
+                throughput = float(point.get(side['throughput_key'], 0))
+                case_scores[case_name] = throughput
+                cv_values.append(float(point.get(side['cv_key'], 0)))
+                if stage == 'prefill':
+                    prefill_values.append(throughput)
+                elif stage == 'decode':
+                    decode_values.append(throughput)
+            rows[key] = {
+                'gpu': hardware_id,
+                'tp': tp,
+                'prefill_avg': (sum(prefill_values) / len(prefill_values)
+                                if prefill_values else 0),
+                'decode_avg': (sum(decode_values) / len(decode_values)
+                               if decode_values else 0),
+                'combined_score': None,
+                'combined_score_status': 'undefined_without_pd_mix',
+                'comparison_status': 'verified',
+                'data_source': 'fixed_batch_ground_truth',
+                'max_cv_pct': max(cv_values) if cv_values else None,
+                'source_report': os.path.relpath(path, PROJECT_ROOT),
+                'price': None,
+                'price_performance': None,
+                'case_scores': case_scores,
+                'color': _hardware_color(hardware_id),
+            }
+    return list(rows.values())
+
+
+def _invert_fixed_batch_point(point):
+    speedup = float(point['candidate_speedup_vs_reference'])
+    if speedup <= 0:
+        raise ValueError('fixed-batch speedup must be positive')
+    winner = point.get('winner')
+    inverse_winner = {
+        'candidate': 'reference',
+        'reference': 'candidate',
+        'tie': 'tie',
+    }.get(winner, winner)
+    result = dict(point)
+    result.update({
+        'reference_mean_ms': point['candidate_mean_ms'],
+        'candidate_mean_ms': point['reference_mean_ms'],
+        'reference_throughput_tokens_per_s':
+            point['candidate_throughput_tokens_per_s'],
+        'candidate_throughput_tokens_per_s':
+            point['reference_throughput_tokens_per_s'],
+        'candidate_speedup_vs_reference': 1.0 / speedup,
+        'winner': inverse_winner,
+        'reference_cv_pct': point['candidate_cv_pct'],
+        'candidate_cv_pct': point['reference_cv_pct'],
+    })
+    return result
+
+
+def _fixed_batch_relative_result(candidate_gpu, reference_gpu, tp):
+    """Find real strict fixed-batch truth and orient it as candidate/reference."""
+    for _, path, payload in _fixed_batch_relative_reports():
+        if int(payload.get('identity', {}).get('tp_size', -1)) != tp:
+            continue
+        stored_candidate = payload.get('candidate', {}).get('hardware_id')
+        stored_reference = payload.get('reference', {}).get('hardware_id')
+        same = (stored_candidate == candidate_gpu and
+                stored_reference == reference_gpu)
+        reverse = (stored_candidate == reference_gpu and
+                   stored_reference == candidate_gpu)
+        if not (same or reverse):
+            continue
+
+        scores = payload.get('scores', {})
+        p_score = float(scores['p_score'])
+        d_score = float(scores['d_score'])
+        points = payload.get('points', [])
+        winner_counts = payload.get('winner_counts', {})
+        if reverse:
+            p_score = 1.0 / p_score
+            d_score = 1.0 / d_score
+            points = [_invert_fixed_batch_point(point) for point in points]
+            winner_counts = {
+                stage: {
+                    'candidate': counts.get('reference', 0),
+                    'reference': counts.get('candidate', 0),
+                    'tie': counts.get('tie', 0),
+                }
+                for stage, counts in winner_counts.items()
+            }
+
+        prefill_count = sum(point.get('stage') == 'prefill' for point in points)
+        decode_count = sum(point.get('stage') == 'decode' for point in points)
+        candidate_manifest = payload.get(
+            'reference' if reverse else 'candidate', {}).get('manifest')
+        reference_manifest = payload.get(
+            'candidate' if reverse else 'reference', {}).get('manifest')
+        return {
+            'schema_version': 1,
+            'status': 'verified',
+            'score_kind': 'measured_ground_truth',
+            'status_explanation': (
+                '严格离线固定 Batch 实测；同模型、同 TP、同负载、同测量协议'),
+            'candidate': {'gpu_type': candidate_gpu, 'tp': tp},
+            'reference': {'gpu_type': reference_gpu, 'tp': tp},
+            'scores': {
+                'prefill_speedup': p_score,
+                'decode_speedup': d_score,
+                'paired_prefill_cases': prefill_count,
+                'paired_decode_cases': decode_count,
+            },
+            'validation': {
+                'ground_truth_complete': True,
+                'repeatability_ok': True,
+                'max_cv_pct': payload.get('acceptance', {}).get('max_cv_pct'),
+            },
+            'winner_counts': winner_counts,
+            'points': points,
+            'sources': {
+                'ground_truth': os.path.relpath(path, PROJECT_ROOT),
+                'candidate': candidate_manifest,
+                'reference': reference_manifest,
+            },
+        }
+    return None
+
+
 def _get_task_from_file(task_id):
     """直接从文件读取任务，确保实时性"""
     if not os.path.exists(TASKS_FILE):
@@ -124,14 +315,17 @@ def index():
 
 @app.route('/api/summary')
 def get_summary():
+    results = _fixed_batch_summary()
+    seen = {(item['gpu'], int(item['tp'])) for item in results}
     summary_csv = os.path.join(REPORT_DIR, 'benchmark_summary.csv')
     if os.path.exists(summary_csv):
-        results = []
         with open(summary_csv, 'r') as f:
             reader = csv.DictReader(f)
             for row in reader:
                 gpu = row['GPU']
                 tp = int(row['TP']) if row['TP'] else 1
+                if (gpu, tp) in seen:
+                    continue
                 
                 # 构建 case_scores：从该 GPU 的所有 JSON 文件中读取数据
                 case_scores = {}
@@ -164,19 +358,21 @@ def get_summary():
                     'price': float(row['价格']) if row.get('价格') and row['价格'] else None,
                     'price_performance': float(row['性价比']) if row.get('性价比') and row['性价比'] else None,
                     'case_scores': case_scores,
-                    'color': '#76b900' if 'L20' in gpu else '#ff6b6b' if '昇腾' in gpu else '#4ecdc4'
+                    'data_source': 'legacy_benchmark_report',
+                    'color': _hardware_color(gpu),
                 })
         return jsonify(results)
     
     # fallback: 读取所有 JSON 报告
     json_files = glob.glob(os.path.join(REPORT_DIR, 'benchmark_*.json'))
-    results = []
     for f in json_files:
         data = _load_comparable_report(f)
         meta = data.get('meta', {})
         summary = data.get('summary', {})
         gpu = meta.get('gpu_type', 'Unknown')
         tp = meta.get('tp', 1)
+        if (gpu, int(tp)) in seen:
+            continue
         case_scores = {}
         for item in data.get('prefill', []):
             case_scores[item['case']] = item.get('throughput_tok_s', 0)
@@ -198,7 +394,8 @@ def get_summary():
             'comparison_status': 'provisional',
             'price': meta.get('price'),
             'case_scores': case_scores,
-            'color': '#76b900' if 'L20' in gpu else '#ff6b6b' if '昇腾' in gpu else '#4ecdc4'
+            'data_source': 'legacy_benchmark_report',
+            'color': _hardware_color(gpu),
         })
     return jsonify(results)
 
@@ -220,6 +417,12 @@ def get_benchmark_options():
                 options.add((str(meta['gpu_type']), int(meta['tp'])))
         except (OSError, ValueError, TypeError):
             continue
+    for _, _, payload in _fixed_batch_relative_reports():
+        tp = payload.get('identity', {}).get('tp_size')
+        for side in ('reference', 'candidate'):
+            hardware_id = payload.get(side, {}).get('hardware_id')
+            if hardware_id and tp is not None:
+                options.add((str(hardware_id), int(tp)))
     return jsonify([
         {'gpu': gpu, 'tp': tp, 'id': f'{gpu}::TP{tp}'}
         for gpu, tp in sorted(options)
@@ -233,6 +436,10 @@ def get_relative_benchmark():
     tp = request.args.get('tp', type=int)
     if not candidate_gpu or not reference_gpu or tp is None:
         return jsonify({'error': 'candidate, reference and tp are required'}), 400
+    fixed_batch_truth = _fixed_batch_relative_result(
+        candidate_gpu, reference_gpu, tp)
+    if fixed_batch_truth is not None:
+        return jsonify(fixed_batch_truth)
     candidate_path = _latest_report(candidate_gpu, tp)
     reference_path = _latest_report(reference_gpu, tp)
     if not candidate_path or not reference_path:
@@ -454,6 +661,7 @@ if __name__ == '__main__':
     print("🚀 Benchmark 平台启动")
     print("=" * 60)
     print(f"📊 访问: http://localhost:5000")
-    print(f"📁 报告目录: {REPORT_DIR}")
+    print(f"📁 传统报告目录: {REPORT_DIR}")
+    print(f"📁 相对 Benchmark 目录: {RELATIVE_REPORT_DIR}")
     print("=" * 60)
     app.run(host='0.0.0.0', port=5000, debug=True)
