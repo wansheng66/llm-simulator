@@ -1,0 +1,46 @@
+{
+  "schema_version": 1,
+  "backend_id": "cuda_vllm_l20_tp4_inner_grid_extrapolation_verified_v1",
+  "hardware_id": "djs_l20_8gpu_node",
+  "platform_family": "cuda",
+  "protocol_version": "0.1",
+  "tp_size": 4,
+  "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+  "profiles": {
+    "operator_profile_dir": "data/runtime_extrapolation_validation/profile_subsets/l20_tp4_inner_b8_l1024",
+    "collective_profile_dir": "data/stage2_profiling/collectives",
+    "statistic": "mean"
+  },
+  "calibration": {
+    "enabled": true,
+    "file": "configs/calibration_l20_tp4_decode_offline15_comm_verified.json",
+    "stages": [
+      "decode"
+    ]
+  },
+  "validation": {
+    "status": "verified",
+    "scope": "Qwen3-32B BF16 fixed-batch operator-domain extrapolation from the B<=8 and L/KV<=1024 inner profiling grid on L20 TP4",
+    "fit_dataset": "15 offline Decode points: B2/3/6 x KV64/256/768 plus B9/10 x KV256/768/1280",
+    "development_spec": "configs/benchmark_specs/qwen3_32b_runtime_operator_extrapolation_4physical_v3.json",
+    "development_report": "data/runtime_extrapolation_validation/reports/l20_tp4_v3_offline15_comm_candidate/runtime_extrapolation_validation.json",
+    "independent_spec": "configs/benchmark_specs/qwen3_32b_runtime_operator_extrapolation_4physical_v4.json",
+    "independent_prediction": "data/runtime_extrapolation_validation/predictions/l20_tp4_v4_comm_candidate_frozen.json",
+    "independent_prediction_sha256": "data/runtime_extrapolation_validation/predictions/l20_tp4_v4_comm_candidate_frozen.json.sha256",
+    "independent_ground_truth": "data/runtime_extrapolation_validation/ground_truth/l20_tp4_v4/manifest.json",
+    "independent_report": "data/runtime_extrapolation_validation/reports/l20_tp4_v4_comm_candidate_independent/runtime_extrapolation_validation.json",
+    "independent_report_sha256": "data/runtime_extrapolation_validation/reports/l20_tp4_v4_comm_candidate_independent/runtime_extrapolation_validation.json.sha256",
+    "metrics": {
+      "prefill_mape_pct": 2.46,
+      "prefill_bias_pct": 2.46,
+      "decode_mape_pct": 2.66,
+      "decode_bias_pct": 1.14,
+      "attention_work_mape_pct": 2.15,
+      "batch_size_mape_pct": 3.80,
+      "all_predictions_extrapolated": true,
+      "ground_truth_cv_passed": true
+    },
+    "policy": "verified only for the documented model, TP, fixed-batch protocol and tested extrapolation domain; preserve the prior Stage-2 backend for its original interpolation-validation scope",
+    "communication_scale_interpretation": "empirical runtime-adapter coefficient; zero does not mean zero physical communication cost"
+  }
+}

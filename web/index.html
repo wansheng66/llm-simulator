@@ -75,7 +75,7 @@
         .radar-controls .btn-sm.active { background: #1a1a2e; color: white; border-color: #1a1a2e; }
         .protocol-grid { display:grid; grid-template-columns:1.2fr 1fr; gap:24px; }
         .protocol-note { color:#5f6368; line-height:1.6; font-size:13px; }
-        .metric-row { display:grid; grid-template-columns:repeat(3, 1fr); gap:12px; margin-top:14px; }
+        .metric-row { display:grid; grid-template-columns:repeat(5, 1fr); gap:12px; margin-top:14px; }
         .metric { background:#f7f8fa; border-radius:10px; padding:14px; }
         .metric .value { font-size:24px; font-weight:700; color:#1a1a2e; }
         .metric .label { font-size:12px; color:#777; margin-top:4px; }
@@ -93,7 +93,7 @@
     <div class="header flex-between">
         <div>
             <h1>🔬 AI 推理硬件 Benchmark</h1>
-            <p>基于仿真 + Profiling 的跨硬件推理能力对比平台</p>
+            <p>仅展示已冻结、可溯源并通过独立 Ground Truth 验收的正式跨硬件结果</p>
         </div>
         <div>
             <button class="btn btn-success" onclick="showAddModal()">➕ 添加新硬件</button>
@@ -110,7 +110,7 @@
         <div class="card">
             <div class="flex-between">
                 <h2>⚖️ 相对性能 <span class="badge">同模型 · 同 TP · 同负载</span></h2>
-                <span id="trustStatus" class="trust-badge trust-invalid">未计算</span>
+                <span id="trustStatus" class="trust-badge trust-invalid">未发布</span>
             </div>
             <div class="flex">
                 <select id="referenceGpu" aria-label="基准硬件"></select>
@@ -121,6 +121,8 @@
             <div class="metric-row">
                 <div class="metric"><div id="prefillSpeedup" class="value">—</div><div class="label">P-Score</div><div id="prefillValidation" class="label"></div></div>
                 <div class="metric"><div id="decodeSpeedup" class="value">—</div><div class="label">D-Score</div><div id="decodeValidation" class="label"></div></div>
+                <div class="metric"><div id="relativeMape" class="value">—</div><div class="label">相对 MAPE</div></div>
+                <div class="metric"><div id="rankAgreement" class="value">—</div><div class="label">排序一致率</div></div>
                 <div class="metric"><div id="pairedCases" class="value">—</div><div class="label">有效配对 Case</div></div>
             </div>
             <div id="relativeExplanation" class="protocol-note" style="margin-top:12px;">请选择相同 TP 的两套硬件。</div>
@@ -249,28 +251,17 @@
     <!-- ===== 雷达图 ===== -->
     <div class="card">
         <div class="flex-between" style="margin-bottom: 8px;">
-            <h2 style="margin:0;">📊 推理性能雷达图 <span class="badge">归一化对比</span></h2>
-            <div class="radar-controls">
-                <button class="btn-sm active" data-mode="verified">真实固定 Batch</button>
-                <button class="btn-sm" data-mode="all">全部硬件</button>
-                <button class="btn-sm" data-mode="legacy">旧报告</button>
-            </div>
+            <h2 style="margin:0;">📊 正式 Benchmark 性能雷达图 <span class="badge">已冻结 · 可溯源</span></h2>
         </div>
         <div class="chart-container">
             <canvas id="radarChart" height="200"></canvas>
         </div>
     </div>
     
-    <!-- 综合评分 + 吞吐量 -->
-    <div class="grid-2">
-        <div class="card">
-            <h2>📊 旧综合评分 <span class="badge">仅兼容展示，不用于排名</span></h2>
-            <canvas id="scoreChart" height="200"></canvas>
-        </div>
-        <div class="card">
-            <h2>📊 Prefill vs Decode 吞吐</h2>
-            <canvas id="throughputChart" height="200"></canvas>
-        </div>
+    <!-- 最终 Runtime 吞吐量 -->
+    <div class="card">
+        <h2>📊 最终 Runtime：Prefill vs Decode 预测吞吐 <span class="badge">仅包含验收通过硬件</span></h2>
+        <canvas id="throughputChart" height="120"></canvas>
     </div>
     
     <!-- 详细数据表 -->
@@ -285,7 +276,6 @@
     let currentTaskId = null;
     let logPollingInterval = null;
     let chartInstances = {};
-    let radarMode = 'verified'; // 当前雷达图模式
     let benchmarkOptions = [];
 
     // ================= 显示/隐藏弹窗 =================
@@ -314,17 +304,6 @@
                 startProfile(e);
             });
         }
-        // 雷达图切换按钮
-        document.querySelectorAll('.radar-controls .btn-sm').forEach(btn => {
-            btn.addEventListener('click', function() {
-                document.querySelectorAll('.radar-controls .btn-sm').forEach(b => b.classList.remove('active'));
-                this.classList.add('active');
-                radarMode = this.dataset.mode;
-                if (dataCache) {
-                    renderCharts(dataCache);
-                }
-            });
-        });
         loadBenchmarkProtocol();
     });
     
@@ -365,7 +344,17 @@
             `<option value="${x.gpu}::${x.tp}">${x.gpu} (TP=${x.tp})</option>`).join('');
         reference.innerHTML = html;
         candidate.innerHTML = html;
-        if (benchmarkOptions.length > 1) candidate.selectedIndex = 1;
+        const l20Index = benchmarkOptions.findIndex(x =>
+            x.gpu.toLowerCase().includes('l20'));
+        const ascendIndex = benchmarkOptions.findIndex(x => {
+            const name = x.gpu.toLowerCase();
+            return name.includes('ascend') || name.includes('atlas') ||
+                name.includes('昇腾');
+        });
+        reference.selectedIndex = l20Index >= 0 ? l20Index : 0;
+        candidate.selectedIndex = ascendIndex >= 0 ? ascendIndex :
+            (benchmarkOptions.length > 1 ? 1 : 0);
+        if (benchmarkOptions.length > 1) loadRelativeComparison();
     }
 
     async function loadRelativeComparison() {
@@ -389,38 +378,27 @@
             return;
         }
         badge.className = `trust-badge trust-${result.status}`;
-        badge.textContent = result.status;
+        badge.textContent = result.release?.status === 'frozen' ? '正式发布' : result.status;
         const fmt = value => value == null ? '—' : `${value.toFixed(2)}×`;
         document.getElementById('prefillSpeedup').textContent = fmt(result.scores.prefill_speedup);
         document.getElementById('decodeSpeedup').textContent = fmt(result.scores.decode_speedup);
         document.getElementById('pairedCases').textContent = result.scores.paired_prefill_cases + result.scores.paired_decode_cases;
         const validation = result.validation || {};
-        if (result.score_kind === 'measured_ground_truth') {
-            const winners = result.winner_counts || {};
-            const pWins = winners.prefill || {};
-            const dWins = winners.decode || {};
-            document.getElementById('prefillValidation').textContent =
-                `真实 Ground Truth · 候选胜 ${pWins.candidate || 0}/${result.scores.paired_prefill_cases}`;
-            document.getElementById('decodeValidation').textContent =
-                `真实 Ground Truth · 候选胜 ${dWins.candidate || 0}/${result.scores.paired_decode_cases}`;
-            document.getElementById('relativeExplanation').textContent =
-                `${candidate} 相对 ${reference}。${result.status_explanation}；` +
-                `P-Score/D-Score 均为实测吞吐几何平均倍率；` +
-                `CV 验收门槛 ${validation.max_cv_pct}%；综合分需先明确 P/D 负载比例。`;
-            return;
-        }
+        document.getElementById('relativeMape').textContent =
+            validation.relative_mape_pct == null ? '—' :
+            `${validation.relative_mape_pct.toFixed(2)}%`;
+        document.getElementById('rankAgreement').textContent =
+            validation.rank_agreement_ratio == null ? '—' :
+            `${(validation.rank_agreement_ratio * 100).toFixed(0)}%`;
         document.getElementById('prefillValidation').textContent = validation.ground_truth_complete
-            ? `真实 ${fmt(validation.ground_truth_prefill_speedup)} · 误差 ${validation.prefill_score_error_pct.toFixed(1)}%`
+            ? `真实 ${fmt(validation.ground_truth_prefill_speedup)} · 误差 ${validation.prefill_score_error_pct.toFixed(2)}%`
             : '尚无真实 A/B 数据';
         document.getElementById('decodeValidation').textContent = validation.ground_truth_complete
-            ? `真实 ${fmt(validation.ground_truth_decode_speedup)} · 误差 ${validation.decode_score_error_pct.toFixed(1)}%`
+            ? `真实 ${fmt(validation.ground_truth_decode_speedup)} · 误差 ${validation.decode_score_error_pct.toFixed(2)}%`
             : '尚无真实 A/B 数据';
-        const warnings = result.compatibility.warnings.length ? `；注意：${result.compatibility.warnings.join('；')}` : '';
-        const verified = validation.ground_truth_complete
-            ? `；逐点 MAPE ${validation.relative_mape_pct.toFixed(1)}%，排序一致率 ${(validation.rank_agreement_ratio * 100).toFixed(0)}%`
-            : '';
         document.getElementById('relativeExplanation').textContent =
-            `${candidate} 相对 ${reference}。${result.status_explanation}${verified}${warnings}`;
+            `${candidate} 相对 ${reference}。${result.status_explanation}；` +
+            `P/D 分开报告，不生成未定义负载比例的综合分。`;
     }
 
     // ================= 获取选中的 TP 值 =================
@@ -548,34 +526,23 @@
     // ================= 渲染图表 =================
     function renderCharts(data) {
         if (!data || data.length === 0) {
-            document.getElementById('tableContainer').innerHTML = '<p>暂无数据，请先采集硬件 Profiling 数据</p>';
+            document.getElementById('tableContainer').innerHTML =
+                '<p>暂无 status=frozen 的正式 Benchmark 发布结果。</p>';
             return;
         }
 
         const labels = data.map(d => `${d.gpu} (TP=${d.tp})`);
         const colors = data.map(d => d.color || '#4ecdc4');
 
-        // 1. 雷达图（根据模式过滤）
+        // 1. 正式 Benchmark Release 雷达图
         const radarCtx = document.getElementById('radarChart').getContext('2d');
-        const hasFixedBatch = data.some(d => d.data_source === 'fixed_batch_ground_truth');
-        const dimensions = hasFixedBatch
-            ? ['P_B1_L512', 'P_B4_L1024', 'P_B8_L1024', 'D_B1_KV512', 'D_B8_KV1024']
-            : ['P_S', 'P_M', 'P_L', 'D_L', 'D_M'];
-        const dimLabels = hasFixedBatch
-            ? ['P B1/L512', 'P B4/L1024', 'P B8/L1024', 'D B1/KV512', 'D B8/KV1024']
-            : ['Prefill S', 'Prefill M', 'Prefill L', 'Decode L', 'Decode M'];
-        let radarData = [];
-        if (radarMode === 'verified') {
-            radarData = data.filter(d => d.data_source === 'fixed_batch_ground_truth');
-        } else if (radarMode === 'legacy') {
-            radarData = data.filter(d => d.data_source !== 'fixed_batch_ground_truth');
-        } else {
-            radarData = data;
-        }
-        if (radarData.length === 0) {
-            // fallback: 显示所有数据，避免空白
-            radarData = data;
-        }
+        const dimensions = [
+            'P_B1_L512', 'P_B4_L1024', 'P_B8_L1024',
+            'D_B1_KV512', 'D_B8_KV1024'];
+        const dimLabels = [
+            'P B1/L512', 'P B4/L1024', 'P B8/L1024',
+            'D B1/KV512', 'D B8/KV1024'];
+        const radarData = data;
         const radarColors = ['#1a73e8', '#ea4335', '#fbbc04', '#34a853', '#ff6d01', '#46bdc6', '#7baaf7', '#f57c00'];
         const radarColorMap = {};
         radarData.forEach((d, i) => {
@@ -621,44 +588,7 @@
             }
         });
 
-        // 2. 综合评分柱状图
-        const scoreCtx = document.getElementById('scoreChart').getContext('2d');
-        if (chartInstances.score) chartInstances.score.destroy();
-        chartInstances.score = new Chart(scoreCtx, {
-            type: 'bar',
-            data: {
-                labels: labels,
-                datasets: [{
-                    label: '综合评分',
-                    data: data.map(d => d.combined_score || 0),
-                    backgroundColor: colors,
-                    borderColor: colors,
-                    borderWidth: 1
-                }]
-            },
-            options: {
-                responsive: true,
-                maintainAspectRatio: true,
-                plugins: {
-                    legend: { display: false },
-                    datalabels: {
-                        anchor: 'end',
-                        align: 'end',
-                        color: '#333',
-                        font: { weight: 'bold', size: 11 },
-                        formatter: (value) => value.toFixed(0)
-                    }
-                },
-                scales: {
-                    y: {
-                        beginAtZero: true,
-                        title: { display: true, text: '旧评分（不可跨 P/D 解读）' }
-                    }
-                }
-            }
-        });
-
-        // 3. 吞吐量对比
+        // 2. 正式 Benchmark Release 吞吐量对比
         const tpCtx = document.getElementById('throughputChart').getContext('2d');
         if (chartInstances.throughput) chartInstances.throughput.destroy();
         chartInstances.throughput = new Chart(tpCtx, {
@@ -719,9 +649,9 @@
                         <th>TP</th>
                         <th>Prefill Avg (tok/s)</th>
                         <th>Decode Avg (tok/s)</th>
-                        <th>旧综合评分（不用于排名）</th>
+                        <th>发布状态</th>
+                        <th>验证证据</th>
                         <th>数据来源</th>
-                        <th>性价比 (分/元)</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -730,18 +660,22 @@
             const lowerGpu = d.gpu.toLowerCase();
             const gpuClass = lowerGpu.includes('l20') || lowerGpu.includes('nvidia') ? 'gpu-nvidia' :
                             lowerGpu.includes('昇腾') || lowerGpu.includes('ascend') || lowerGpu.includes('atlas') ? 'gpu-huawei' : 'gpu-other';
-            const sourceLabel = d.data_source === 'fixed_batch_ground_truth'
-                ? '真实固定 Batch'
-                : '旧报告';
+            const validation = d.validation || {};
+            const sourceLabel = d.data_source === 'formal_benchmark_release'
+                ? '正式 Benchmark Release'
+                : '非正式数据';
+            const evidence = validation.relative_mape_pct == null
+                ? '—'
+                : `MAPE ${validation.relative_mape_pct.toFixed(2)}% · 排序 ${(validation.rank_agreement_ratio * 100).toFixed(0)}%`;
             html += `
                 <tr>
                     <td><span class="gpu-tag ${gpuClass}">${d.gpu}</span></td>
                     <td>${d.tp || 1}</td>
                     <td>${d.prefill_avg?.toFixed(2) || 0}</td>
                     <td>${d.decode_avg?.toFixed(2) || 0}</td>
-                    <td><strong>${d.combined_score == null ? '—' : d.combined_score.toFixed(2)}</strong></td>
+                    <td><span class="trust-badge trust-verified">已冻结</span></td>
+                    <td>${evidence}</td>
                     <td>${sourceLabel}</td>
-                    <td>${d.price_performance ? d.price_performance.toFixed(4) : '-'}</td>
                 </tr>
             `;
         });

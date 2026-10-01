@@ -1,0 +1,61 @@
+{
+  "schema_version": 2,
+  "prefill": {
+    "2": 1.0,
+    "4": 1.0,
+    "8": 1.0
+  },
+  "decode": {
+    "2": {
+      "base_factor": 0.9316436033052701,
+      "batch_exponent": 0.10358534396612454,
+      "kv_exponent": 0.07032494257091285,
+      "reference_batch_size": 4.0,
+      "reference_kv_len": 512.0,
+      "batch_size_min": 2,
+      "batch_size_max": 6,
+      "kv_len_min": 80,
+      "kv_len_max": 784,
+      "min_factor": 0.2,
+      "max_factor": 2.0
+    },
+    "4": {
+      "base_factor": 1.2091605656531723,
+      "batch_exponent": -0.09629661624459317,
+      "kv_exponent": 0.0334488495365503,
+      "communication_scale": 0.0,
+      "reference_batch_size": 4.0,
+      "reference_kv_len": 512.0,
+      "batch_size_min": 2,
+      "batch_size_max": 10,
+      "kv_len_min": 80,
+      "kv_len_max": 1296,
+      "min_factor": 0.2,
+      "max_factor": 2.0
+    },
+    "8": {
+      "base_factor": 0.8288307639837326,
+      "batch_exponent": 0.21698228740369865,
+      "kv_exponent": 0.05490746658943088,
+      "reference_batch_size": 4.0,
+      "reference_kv_len": 512.0,
+      "batch_size_min": 2,
+      "batch_size_max": 6,
+      "kv_len_min": 80,
+      "kv_len_max": 784,
+      "min_factor": 0.2,
+      "max_factor": 2.0
+    }
+  },
+  "iteration_overhead_ms": {
+    "2": 0.0,
+    "4": 0.0,
+    "8": 0.0
+  },
+  "metadata": {
+    "method": "communication-scale grid search plus log-linear residual shape fit",
+    "fit_dataset": "independent fixed-batch Decode calibration grid",
+    "validation_policy": "B1/4/8 x KV128/512/1024 validation points are forbidden",
+    "calibration_role": "fixed_batch_decode"
+  }
+}

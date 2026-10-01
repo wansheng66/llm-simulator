@@ -1,0 +1,96 @@
+{
+  "schema_version": 1,
+  "protocol_version": "0.1",
+  "benchmark_name": "Qwen3-32B four-physical-accelerator operator-domain extrapolation challenge v3",
+  "benchmark_track": "runtime_operator_extrapolation_validation",
+  "dataset_role": "runtime_extrapolation_validation",
+  "model": {
+    "name": "Qwen3-32B",
+    "model_id": "Qwen/Qwen3-32B",
+    "config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+    "architecture": "dense_decoder_transformer",
+    "attention_type": "GQA",
+    "num_hidden_layers": 64,
+    "hidden_size": 5120,
+    "intermediate_size": 25600,
+    "num_attention_heads": 64,
+    "num_key_value_heads": 8,
+    "head_dim": 128,
+    "dtype": "bfloat16"
+  },
+  "deployment": {
+    "physical_accelerator_count": 4,
+    "max_model_len": 8192,
+    "max_num_batched_tokens": 8192,
+    "max_num_seqs": 32,
+    "block_size_tokens": 16,
+    "enforce_eager": true,
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": false,
+    "decode_initial_kv_policy": "the measured runtime remains the 8K baseline; Decode validation may use a larger preparation-only scheduler budget so the complete initial-KV prompt cohort enters Decode together"
+  },
+  "operator_profile_support_under_test": {
+    "source_shape_grid": {
+      "batch_size_min": 1,
+      "batch_size_max": 8,
+      "prefill_length_min": 128,
+      "prefill_length_max": 1024,
+      "decode_kv_length_min": 128,
+      "decode_kv_length_max": 1024
+    },
+    "dominant_work_max": {
+      "prefill_tokenwise": 8192,
+      "prefill_attention": 8388608,
+      "decode_tokenwise": 8,
+      "decode_attention": 8192
+    }
+  },
+  "measurement": {
+    "submission_mode": "offline_enqueue_barrier",
+    "engine_lifecycle": "runtime_backend_specific",
+    "measured_batches_per_point": 3,
+    "maximum_cv_pct": 5.0,
+    "collection_max_num_batched_tokens": {
+      "prefill": 8192,
+      "decode": 16384
+    },
+    "scheduler_budget_note": "Decode uses 16K only to construct the initial KV cohort in one scheduler iteration; Prefill and the target runtime protocol remain at 8K, and the preparation budget is not a calibration input"
+  },
+  "split_policy": {
+    "operator_profile_usage": "frozen_existing_profiles_only",
+    "calibration_usage": "frozen_existing_calibration_only",
+    "prediction_order": "prediction and all runtime-backend fingerprints must be written before ground truth collection",
+    "ground_truth_usage": "validation_only; forbidden for fitting or selecting the frozen prediction",
+    "overlap_rule": "every case must exceed at least one dominant operator-work coordinate used by the cost model"
+  },
+  "workloads": {
+    "prefill": [
+      {"case": "P_EXT_ATTN_B5_L1536", "batch_size": 5, "prompt_length": 1536, "extrapolation_axis": "attention_work"},
+      {"case": "P_EXT_ATTN_B4_L2048", "batch_size": 4, "prompt_length": 2048, "extrapolation_axis": "attention_work"},
+      {"case": "P_EXT_ATTN_B2_L3072", "batch_size": 2, "prompt_length": 3072, "extrapolation_axis": "attention_work"},
+      {"case": "P_EXT_ATTN_B1_L4096", "batch_size": 1, "prompt_length": 4096, "extrapolation_axis": "attention_work"}
+    ],
+    "decode": [
+      {"case": "D_EXT_ATTN_B6_KV1536", "batch_size": 6, "kv_length": 1536, "extrapolation_axis": "attention_work"},
+      {"case": "D_EXT_ATTN_B8_KV1536", "batch_size": 8, "kv_length": 1536, "extrapolation_axis": "attention_work"},
+      {"case": "D_EXT_BATCH_B12_KV128", "batch_size": 12, "kv_length": 128, "extrapolation_axis": "batch_size"},
+      {"case": "D_EXT_BATCH_B12_KV512", "batch_size": 12, "kv_length": 512, "extrapolation_axis": "batch_size"}
+    ]
+  },
+  "acceptance": {
+    "stage_mape_threshold_pct": 20.0,
+    "maximum_ground_truth_cv_pct": 5.0,
+    "all_predictions_must_be_marked_extrapolated": true
+  },
+  "score": {
+    "per_case": "absolute prediction error and later candidate/reference throughput ratio",
+    "stage_aggregation": "arithmetic mean absolute percentage error",
+    "axis_aggregation": "arithmetic mean absolute percentage error grouped by extrapolation_axis",
+    "combined_score": null
+  },
+  "scope": {
+    "measured_case_count": 8,
+    "coverage": "operator-domain extrapolation beyond the dominant-work coordinates in the frozen profiles",
+    "not_claimed": "arbitrary shapes beyond the deployment token and memory limits"
+  }
+}

@@ -25,41 +25,6 @@ def csv_ints(value: str) -> List[int]:
     return result
 
 
-def exact_case(value: str) -> tuple[str, int, int]:
-    """Parse STAGE:BATCH:LENGTH without changing the legacy grid interface."""
-    try:
-        stage, batch_text, length_text = value.split(":", 2)
-        batch, length = int(batch_text), int(length_text)
-    except (ValueError, TypeError) as exc:
-        raise argparse.ArgumentTypeError(
-            "expected STAGE:BATCH:LENGTH, for example prefill:4:2048"
-        ) from exc
-    if stage not in {"prefill", "decode"} or batch <= 0 or length <= 0:
-        raise argparse.ArgumentTypeError(
-            "exact case needs prefill/decode and positive batch/length"
-        )
-    return stage, batch, length
-
-
-def requested_points(args: argparse.Namespace) -> List[tuple[str, int, int]]:
-    """Return explicit cases when provided, otherwise the legacy grid."""
-    explicit = list(getattr(args, "exact_cases", None) or [])
-    if explicit:
-        if len(set(explicit)) != len(explicit):
-            raise ValueError("--exact-case contains duplicate shapes")
-        return explicit
-    stage_lengths = {
-        "prefill": args.prefill_lengths,
-        "decode": args.decode_kv_lengths,
-    }
-    return [
-        (stage, batch, length)
-        for stage in args.stages
-        for batch in args.batch_sizes
-        for length in stage_lengths[stage]
-    ]
-
-
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--collector-mode", choices=("streaming", "offline"),
@@ -95,12 +60,6 @@ def parse_args() -> argparse.Namespace:
                         default=csv_ints("128,512,1024"))
     parser.add_argument("--decode-kv-lengths", type=csv_ints,
                         default=csv_ints("128,512,1024"))
-    parser.add_argument(
-        "--exact-case", dest="exact_cases", action="append",
-        type=exact_case,
-        help=("collect only this STAGE:BATCH:LENGTH tuple; repeat the option "
-              "for a non-Cartesian workload set"),
-    )
     parser.add_argument("--decode-tokens", type=int, default=32)
     parser.add_argument("--warmup", type=int, default=1)
     parser.add_argument("--repeats", type=int, default=3)
@@ -114,18 +73,6 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--deployment-config", type=Path, required=True)
     parser.add_argument("--hardware-metadata-file", type=Path)
     parser.add_argument("--server-command-file", type=Path)
-    parser.add_argument(
-        "--dataset-role",
-        choices=(
-            "benchmark_on_grid_validation",
-            "runtime_interpolation_validation",
-            "runtime_extrapolation_validation",
-            "decode_calibration",
-            "prefill_calibration",
-        ),
-        default="benchmark_on_grid_validation",
-        help="semantic role recorded in the suite manifest",
-    )
     parser.add_argument("--resume", action="store_true",
                         help="Skip existing valid points whose shape and TP match")
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -170,7 +117,6 @@ def write_manifest(args: argparse.Namespace, outputs: List[str]) -> Path:
     manifest = {
         "schema_version": 1,
         "experiment_type": "fixed_batch_suite_manifest",
-        "dataset_role": args.dataset_role,
         "collector_mode": args.collector_mode,
         "offline_engine_lifecycle": (
             args.offline_engine_lifecycle
@@ -189,10 +135,6 @@ def write_manifest(args: argparse.Namespace, outputs: List[str]) -> Path:
         "hardware_metadata_file": (
             str(args.hardware_metadata_file.resolve())
             if args.hardware_metadata_file else None),
-        "requested_points": [
-            {"stage": stage, "batch_size": batch, "length": length}
-            for stage, batch, length in requested_points(args)
-        ],
         "files": outputs,
     }
     path = args.output_dir / "manifest.json"
@@ -366,67 +308,79 @@ def run_offline_isolated_sample_suite(args: argparse.Namespace) -> int:
         raise SystemExit("--offline-cooldown-seconds cannot be negative")
 
     outputs: List[str] = []
+    stage_lengths = {
+        "prefill": args.prefill_lengths,
+        "decode": args.decode_kv_lengths,
+    }
     raw_root = args.output_dir / ".isolated_engine_samples"
     launched_engine = False
 
-    for stage, batch, length in requested_points(args):
-        output = args.output_dir / f"{stage}_b{batch}_l{length}.json"
-        if args.resume and reusable_output(output, args, stage, batch, length):
-            print(
-                f"reuse valid {stage}: TP={args.tp_size}, "
-                f"batch={batch}, length={length}"
-            )
-            outputs.append(str(output.resolve()))
-            continue
-
-        point_raw_dir = raw_root / f"{stage}_b{batch}_l{length}"
-        point_raw_dir.mkdir(parents=True, exist_ok=True)
-        payloads: List[Dict[str, Any]] = []
-        raw_paths: List[Path] = []
-        for engine_index in range(1, args.repeats + 1):
-            raw_output = point_raw_dir / f"engine_{engine_index}.json"
-            if args.resume and reusable_output(
-                raw_output, args, stage, batch, length
-            ):
-                print(
-                    f"reuse isolated engine {engine_index}/{args.repeats}: "
-                    f"{stage} TP={args.tp_size}, batch={batch}, "
-                    f"length={length}"
-                )
-            else:
-                if launched_engine and args.offline_cooldown_seconds > 0:
+    for stage in args.stages:
+        for batch in args.batch_sizes:
+            for length in stage_lengths[stage]:
+                output = args.output_dir / f"{stage}_b{batch}_l{length}.json"
+                if args.resume and reusable_output(
+                    output, args, stage, batch, length
+                ):
                     print(
-                        "cooldown before next engine: "
-                        f"{args.offline_cooldown_seconds:g} seconds"
+                        f"reuse valid {stage}: TP={args.tp_size}, "
+                        f"batch={batch}, length={length}"
                     )
-                    time.sleep(args.offline_cooldown_seconds)
+                    outputs.append(str(output.resolve()))
+                    continue
+
+                point_raw_dir = raw_root / f"{stage}_b{batch}_l{length}"
+                point_raw_dir.mkdir(parents=True, exist_ok=True)
+                payloads: List[Dict[str, Any]] = []
+                raw_paths: List[Path] = []
+                for engine_index in range(1, args.repeats + 1):
+                    raw_output = point_raw_dir / f"engine_{engine_index}.json"
+                    if args.resume and reusable_output(
+                        raw_output, args, stage, batch, length
+                    ):
+                        print(
+                            f"reuse isolated engine {engine_index}/{args.repeats}: "
+                            f"{stage} TP={args.tp_size}, batch={batch}, "
+                            f"length={length}"
+                        )
+                    else:
+                        if launched_engine and args.offline_cooldown_seconds > 0:
+                            print(
+                                "cooldown before next engine: "
+                                f"{args.offline_cooldown_seconds:g} seconds"
+                            )
+                            time.sleep(args.offline_cooldown_seconds)
+                        print(
+                            f"collect isolated engine {engine_index}/{args.repeats}: "
+                            f"{stage} TP={args.tp_size}, batch={batch}, "
+                            f"length={length}"
+                        )
+                        command = offline_collector_command(
+                            args, stage, batch, length, raw_output, repeats=1
+                        )
+                        subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+                        launched_engine = True
+
+                    payload = json.loads(raw_output.read_text(encoding="utf-8"))
+                    if payload.get("fixed_batch_valid") is not True:
+                        raise SystemExit(
+                            f"invalid isolated run written to {raw_output}"
+                        )
+                    payloads.append(payload)
+                    raw_paths.append(raw_output)
+
+                merged = merge_isolated_sample_runs(
+                    payloads, raw_paths, args, output
+                )
+                if not merged["fixed_batch_valid"]:
+                    raise SystemExit(
+                        f"invalid merged fixed-batch point written to {output}"
+                    )
                 print(
-                    f"collect isolated engine {engine_index}/{args.repeats}: "
-                    f"{stage} TP={args.tp_size}, batch={batch}, "
-                    f"length={length}"
+                    f"saved isolated-engine point: {output}; "
+                    f"mean={merged['summary']['mean_ms']:.3f} ms"
                 )
-                command = offline_collector_command(
-                    args, stage, batch, length, raw_output, repeats=1
-                )
-                subprocess.run(command, cwd=PROJECT_ROOT, check=True)
-                launched_engine = True
-
-            payload = json.loads(raw_output.read_text(encoding="utf-8"))
-            if payload.get("fixed_batch_valid") is not True:
-                raise SystemExit(f"invalid isolated run written to {raw_output}")
-            payloads.append(payload)
-            raw_paths.append(raw_output)
-
-        merged = merge_isolated_sample_runs(payloads, raw_paths, args, output)
-        if not merged["fixed_batch_valid"]:
-            raise SystemExit(
-                f"invalid merged fixed-batch point written to {output}"
-            )
-        print(
-            f"saved isolated-engine point: {output}; "
-            f"mean={merged['summary']['mean_ms']:.3f} ms"
-        )
-        outputs.append(str(output.resolve()))
+                outputs.append(str(output.resolve()))
 
     path = write_manifest(args, outputs)
     print(f"saved {len(outputs)} fixed-batch points; manifest={path}")
@@ -435,25 +389,6 @@ def run_offline_isolated_sample_suite(args: argparse.Namespace) -> int:
 
 def run_offline_suite(args: argparse.Namespace) -> int:
     """Load one offline engine and collect every requested shape with it."""
-    points = requested_points(args)
-    existing_outputs = [
-        args.output_dir / f"{stage}_b{batch}_l{length}.json"
-        for stage, batch, length in points
-    ]
-    if args.resume and all(
-        reusable_output(path, args, stage, batch, length)
-        for path, (stage, batch, length) in zip(existing_outputs, points)
-    ):
-        outputs = [str(path.resolve()) for path in existing_outputs]
-        for stage, batch, length in points:
-            print(
-                f"reuse valid {stage}: TP={args.tp_size}, "
-                f"batch={batch}, length={length}"
-            )
-        path = write_manifest(args, outputs)
-        print(f"saved {len(outputs)} fixed-batch points; manifest={path}")
-        return 0
-
     os.environ.setdefault("TOKENIZERS_PARALLELISM", "false")
     os.environ["VLLM_ENABLE_V1_MULTIPROCESSING"] = "0"
 
@@ -470,15 +405,13 @@ def run_offline_suite(args: argparse.Namespace) -> int:
         raise SystemExit("deployment TP does not match --tp-size")
     if deployment.get("enable_prefix_caching") is True:
         raise SystemExit("strict baseline requires prefix caching disabled")
-    max_num_seqs = int(
-        deployment.get("max_num_seqs", max(batch for _, batch, _ in points))
-    )
+    max_num_seqs = int(deployment.get("max_num_seqs", max(args.batch_sizes)))
     max_num_batched_tokens = int(deployment.get(
         "max_num_batched_tokens", 8192))
-    if any(
-        batch > max_num_seqs or batch * length > max_num_batched_tokens
-        for _, batch, length in points
-    ):
+    largest_batch = max(args.batch_sizes)
+    largest_length = max(args.prefill_lengths + args.decode_kv_lengths)
+    if (largest_batch > max_num_seqs
+            or largest_batch * largest_length > max_num_batched_tokens):
         raise SystemExit(
             "at least one shape cannot fit one configured scheduler iteration")
 
@@ -506,38 +439,42 @@ def run_offline_suite(args: argparse.Namespace) -> int:
     )
 
     outputs = []
-    for stage, batch, length in points:
-        output = args.output_dir / f"{stage}_b{batch}_l{length}.json"
-        if args.resume and reusable_output(output, args, stage, batch, length):
-            print(
-                f"reuse valid {stage}: TP={args.tp_size}, "
-                f"batch={batch}, length={length}"
-            )
-            outputs.append(str(output.resolve()))
-            continue
+    stage_lengths = {
+        "prefill": args.prefill_lengths,
+        "decode": args.decode_kv_lengths,
+    }
+    for stage in args.stages:
+        for batch in args.batch_sizes:
+            for length in stage_lengths[stage]:
+                output = args.output_dir / f"{stage}_b{batch}_l{length}.json"
+                if args.resume and reusable_output(
+                        output, args, stage, batch, length):
+                    print(f"reuse valid {stage}: TP={args.tp_size}, "
+                          f"batch={batch}, length={length}")
+                    outputs.append(str(output.resolve()))
+                    continue
 
-        point_args = argparse.Namespace(**vars(args))
-        point_args.stage = stage
-        point_args.batch_size = batch
-        point_args.length = length
-        point_args.output = output
-        base_prompt = exact_length_prompt(tokenizer, length)
-        sampling_params = SamplingParams(
-            temperature=0.0,
-            max_tokens=(1 if stage == "prefill" else args.decode_tokens),
-            ignore_eos=True,
-            detokenize=False,
-        )
-        print(
-            f"collect {stage}: TP={args.tp_size}, "
-            f"batch={batch}, length={length}"
-        )
-        payload = collect_point(
-            llm, sampling_params, base_prompt, point_args, deployment
-        )
-        if not payload["fixed_batch_valid"]:
-            raise SystemExit(f"invalid fixed-batch point written to {output}")
-        outputs.append(str(output.resolve()))
+                point_args = argparse.Namespace(**vars(args))
+                point_args.stage = stage
+                point_args.batch_size = batch
+                point_args.length = length
+                point_args.output = output
+                base_prompt = exact_length_prompt(tokenizer, length)
+                sampling_params = SamplingParams(
+                    temperature=0.0,
+                    max_tokens=(1 if stage == "prefill"
+                                else args.decode_tokens),
+                    ignore_eos=True,
+                    detokenize=False,
+                )
+                print(f"collect {stage}: TP={args.tp_size}, "
+                      f"batch={batch}, length={length}")
+                payload = collect_point(
+                    llm, sampling_params, base_prompt, point_args, deployment)
+                if not payload["fixed_batch_valid"]:
+                    raise SystemExit(
+                        f"invalid fixed-batch point written to {output}")
+                outputs.append(str(output.resolve()))
 
     path = write_manifest(args, outputs)
     print(f"saved {len(outputs)} fixed-batch points; manifest={path}")
@@ -552,50 +489,63 @@ def main() -> int:
             return run_offline_isolated_sample_suite(args)
         return run_offline_suite(args)
     outputs = []
-    for stage, batch, length in requested_points(args):
-        output = args.output_dir / f"{stage}_b{batch}_l{length}.json"
-        if args.resume and reusable_output(output, args, stage, batch, length):
-            print(
-                f"reuse valid {stage}: TP={args.tp_size}, "
-                f"batch={batch}, length={length}"
-            )
-            outputs.append(str(output.resolve()))
-            continue
-        command = [
-            sys.executable,
-            str(PROJECT_ROOT / "scripts" / "collect_fixed_batch_vllm.py"),
-            "--model", args.model,
-            "--tokenizer", args.tokenizer or args.model,
-            "--stage", stage,
-            "--tp-size", str(args.tp_size),
-            "--batch-size", str(batch),
-            "--length", str(length),
-            "--decode-tokens", str(args.decode_tokens),
-            "--warmup", str(args.warmup),
-            "--repeats", str(args.repeats),
-            "--max-first-token-spread-ms",
-            str(args.max_first_token_spread_ms),
-            "--dtype", args.dtype,
-            "--deployment-config", str(args.deployment_config),
-            "--output", str(output),
-            "--base-url", args.base_url,
-            "--api-key", args.api_key,
-            "--submission-mode", args.submission_mode,
-        ]
-        if args.server_command_file:
-            command.extend(
-                ["--server-command-file", str(args.server_command_file)]
-            )
-        if args.hardware_metadata_file:
-            command.extend(
-                ["--hardware-metadata-file", str(args.hardware_metadata_file)]
-            )
-        print(
-            f"collect {stage}: TP={args.tp_size}, "
-            f"batch={batch}, length={length}"
-        )
-        subprocess.run(command, cwd=PROJECT_ROOT, check=True)
-        outputs.append(str(output.resolve()))
+    stage_lengths = {
+        "prefill": args.prefill_lengths,
+        "decode": args.decode_kv_lengths,
+    }
+    for stage in args.stages:
+        lengths = stage_lengths[stage]
+        for batch in args.batch_sizes:
+            for length in lengths:
+                output = args.output_dir / f"{stage}_b{batch}_l{length}.json"
+                if args.resume and reusable_output(
+                        output, args, stage, batch, length):
+                    print(f"reuse valid {stage}: TP={args.tp_size}, "
+                          f"batch={batch}, length={length}")
+                    outputs.append(str(output.resolve()))
+                    continue
+                collector_script = (
+                    "collect_fixed_batch_vllm_offline.py"
+                    if args.collector_mode == "offline"
+                    else "collect_fixed_batch_vllm.py"
+                )
+                command = [
+                    sys.executable,
+                    str(PROJECT_ROOT / "scripts" / collector_script),
+                    "--model", args.model,
+                    "--tokenizer", args.tokenizer or args.model,
+                    "--stage", stage,
+                    "--tp-size", str(args.tp_size),
+                    "--batch-size", str(batch),
+                    "--length", str(length),
+                    "--decode-tokens", str(args.decode_tokens),
+                    "--warmup", str(args.warmup),
+                    "--repeats", str(args.repeats),
+                    "--max-first-token-spread-ms",
+                    str(args.max_first_token_spread_ms),
+                    "--dtype", args.dtype,
+                    "--deployment-config", str(args.deployment_config),
+                    "--output", str(output),
+                ]
+                if args.collector_mode == "offline":
+                    command.extend([
+                        "--max-scheduled-spread-ms",
+                        str(args.max_scheduled_spread_ms),
+                    ])
+                else:
+                    command.extend([
+                        "--base-url", args.base_url,
+                        "--api-key", args.api_key,
+                        "--submission-mode", args.submission_mode,
+                    ])
+                if args.server_command_file and args.collector_mode == "streaming":
+                    command.extend(["--server-command-file", str(args.server_command_file)])
+                if args.hardware_metadata_file:
+                    command.extend([
+                        "--hardware-metadata-file", str(args.hardware_metadata_file)])
+                print(f"collect {stage}: TP={args.tp_size}, batch={batch}, length={length}")
+                subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+                outputs.append(str(output.resolve()))
     path = write_manifest(args, outputs)
     print(f"saved {len(outputs)} fixed-batch points; manifest={path}")
     return 0

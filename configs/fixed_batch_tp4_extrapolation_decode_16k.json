@@ -1,0 +1,15 @@
+{
+  "model": "/data/home/public/weight/Qwen3-32B",
+  "tensor_parallel_size": 4,
+  "cuda_visible_devices": [0, 1, 2, 3],
+  "dtype": "bfloat16",
+  "gpu_memory_utilization": 0.85,
+  "max_model_len": 8192,
+  "max_num_batched_tokens": 16384,
+  "max_num_seqs": 32,
+  "enforce_eager": true,
+  "enable_prefix_caching": false,
+  "enable_chunked_prefill": false,
+  "block_size_tokens": 16,
+  "collection_only_note": "16K permits one strict initial-KV cohort for Decode extrapolation validation; the target runtime protocol remains the 8K baseline."
+}

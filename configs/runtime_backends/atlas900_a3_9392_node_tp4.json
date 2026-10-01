@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "backend_id": "ascend_vllm_p50_v1",
+  "hardware_id": "atlas900_a3_9392_node",
+  "platform_family": "ascend",
+  "protocol_version": "0.1",
+  "tp_size": 4,
+  "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+  "profiles": {
+    "operator_profile_dir": "data/runtime_profiles/atlas900_a3_9392_node/operators",
+    "collective_profile_dir": "data/runtime_profiles/atlas900_a3_9392_node/collectives_runtime_p50",
+    "statistic": "p50"
+  },
+  "calibration": {
+    "enabled": false,
+    "file": null,
+    "stages": []
+  },
+  "validation": {
+    "status": "pending_decode_model_improvement",
+    "report": "data/runtime_validation/qwen3_32b_tp4_l20_vs_ascend_a3/relative_runtime_validation.json",
+    "policy": "Ascend changes must not modify the frozen L20 backend"
+  }
+}

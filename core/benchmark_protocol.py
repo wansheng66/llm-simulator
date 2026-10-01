@@ -123,13 +123,34 @@ def compare_reports(candidate: Dict, reference: Dict,
     )
     same_model = candidate_meta.get("model_id") == reference_meta.get("model_id")
     same_tp = candidate_meta.get("tp") == reference_meta.get("tp")
+    candidate_track = candidate_meta.get(
+        "comparison_track", "iso_logical_tp")
+    reference_track = reference_meta.get(
+        "comparison_track", "iso_logical_tp")
+    same_track = candidate_track == reference_track
+    comparison_track = (
+        candidate_track if same_track else "incompatible")
+    candidate_physical = candidate_meta.get("physical_accelerators")
+    reference_physical = reference_meta.get("physical_accelerators")
+    same_physical = (
+        candidate_physical is not None
+        and reference_physical is not None
+        and int(candidate_physical) == int(reference_physical)
+    )
     compatibility_warnings: List[str] = []
     if not same_protocol:
         compatibility_warnings.append("reports do not both declare protocol 0.1")
     if not same_model:
         compatibility_warnings.append("model_id differs or is missing")
-    if not same_tp:
-        compatibility_warnings.append("TP differs; iso-workload node comparison is invalid")
+    if not same_track:
+        compatibility_warnings.append("comparison tracks differ")
+    if comparison_track == "iso_physical_accelerators":
+        if not same_physical:
+            compatibility_warnings.append(
+                "physical accelerator counts differ or are missing")
+    elif not same_tp:
+        compatibility_warnings.append(
+            "TP differs; iso-logical-TP comparison is invalid")
 
     points = []
     stage_ratios: Dict[str, List[float]] = {"prefill": [], "decode": []}
@@ -163,7 +184,12 @@ def compare_reports(candidate: Dict, reference: Dict,
             })
             stage_ratios[stage].append(ratio)
 
-    compatible = same_protocol and same_model and same_tp
+    resource_compatible = (
+        same_physical if comparison_track == "iso_physical_accelerators"
+        else same_tp
+    )
+    compatible = (
+        same_protocol and same_model and same_track and resource_compatible)
     has_truth = bool(points) and all(point["ground_truth_speedup"] is not None for point in points)
     status = "invalid" if not compatible or not points else ("verified" if has_truth else "provisional")
     measured_errors = [point["relative_error_pct"] for point in points
@@ -191,7 +217,7 @@ def compare_reports(candidate: Dict, reference: Dict,
     return {
         "schema_version": 1,
         "protocol_version": PROTOCOL_VERSION,
-        "comparison_track": "iso_workload",
+        "comparison_track": comparison_track,
         "status": status,
         "status_explanation": {
             "verified": "all paired cases include independent real A/B ground truth",
@@ -201,15 +227,19 @@ def compare_reports(candidate: Dict, reference: Dict,
         "candidate": {
             "gpu_type": candidate_meta.get("gpu_type", "Unknown"),
             "tp": candidate_meta.get("tp"),
+            "physical_accelerators": candidate_physical,
         },
         "reference": {
             "gpu_type": reference_meta.get("gpu_type", "Unknown"),
             "tp": reference_meta.get("tp"),
+            "physical_accelerators": reference_physical,
         },
         "compatibility": {
             "same_protocol": same_protocol,
             "same_model": same_model,
+            "same_comparison_track": same_track,
             "same_tp": same_tp,
+            "same_physical_accelerator_count": same_physical,
             "warnings": compatibility_warnings,
         },
         "scores": {

@@ -30,6 +30,15 @@ QWEN3_32B = ModelSpec(
 )
 
 
+# Collective benchmark sizes are supplied as human-readable decimal MB values
+# (for example ``0.01``), while tensor payloads are derived in binary MiB.  A
+# nominal 10 KiB payload is therefore 0.009765625 MiB and would otherwise be
+# misclassified as an extrapolation below a 0.01 MB profile point.  Treat only
+# this narrow representation boundary as measured coverage; genuinely unseen
+# message sizes still use edge-slope extrapolation and remain flagged.
+COMM_PROFILE_BOUNDARY_REL_TOLERANCE = 0.05
+
+
 class LLMCostModel:
     """Predict iteration cost from operator and collective profiling tables.
 
@@ -45,7 +54,10 @@ class LLMCostModel:
                  enable_e2e_compensation: bool = False,
                  operator_profile_dir: Optional[str] = None,
                  collective_profile_dir: Optional[str] = None,
-                 profile_statistic: str = "mean", **legacy_kwargs):
+                 profile_statistic: str = "mean",
+                 operator_profile_statistic: Optional[str] = None,
+                 collective_profile_statistic: Optional[str] = None,
+                 **legacy_kwargs):
         self.data_dir = Path(data_dir)
         self.model = model
         self.hardware = hardware or HardwareSpec(
@@ -54,22 +66,36 @@ class LLMCostModel:
         self.peak_tflops = peak_tflops
         self.mem_bw_gb_s = mem_bw_gb_s
         self.enable_e2e_compensation = enable_e2e_compensation
-        if profile_statistic not in {"mean", "p50"}:
+        allowed_statistics = {"mean", "p50"}
+        if profile_statistic not in allowed_statistics:
             raise ValueError("profile_statistic must be 'mean' or 'p50'")
+        operator_profile_statistic = (
+            operator_profile_statistic or profile_statistic)
+        collective_profile_statistic = (
+            collective_profile_statistic or profile_statistic)
+        if operator_profile_statistic not in allowed_statistics:
+            raise ValueError(
+                "operator_profile_statistic must be 'mean' or 'p50'")
+        if collective_profile_statistic not in allowed_statistics:
+            raise ValueError(
+                "collective_profile_statistic must be 'mean' or 'p50'")
         self.profile_statistic = profile_statistic
-        timing_key = f"{profile_statistic}_ms"
+        self.operator_profile_statistic = operator_profile_statistic
+        self.collective_profile_statistic = collective_profile_statistic
+        operator_timing_key = f"{operator_profile_statistic}_ms"
+        collective_timing_key = f"{collective_profile_statistic}_ms"
         self.calibration = self._load_calibration(calibration_file)
         self.compute_table = self._load_required("qwen3_32b_prefill_lookup_table.json")
         self.decode_table = self._load_required("qwen3_32b_decode_lookup_table.json")
         self.operator_profile_tables = self._load_operator_profiles(
             Path(operator_profile_dir) if operator_profile_dir else
-            self.data_dir / "operator_profiles", timing_key)
+            self.data_dir / "operator_profiles", operator_timing_key)
         tables = {tp: self._load_optional(f"comm_lookup_table_tp{tp}.json")
                   for tp in (1, 2, 4, 8)}
         self.comm_tables = {key: value for key, value in tables.items() if value}
         measured_collectives = self._load_collective_profiles(
             Path(collective_profile_dir) if collective_profile_dir else
-            self.data_dir / "collective_profiles", timing_key)
+            self.data_dir / "collective_profiles", collective_timing_key)
         self.comm_tables.update(measured_collectives)
         self.collective_profile_tps = set(measured_collectives)
         self.num_layers = model.num_layers
@@ -248,11 +274,22 @@ class LLMCostModel:
         points = sorted((float(row["msg_size_mb"]), float(row["allreduce_ms"]))
                         for row in table)
         xs = [point[0] for point in points]
-        low, high = self._axis_bounds(xs, message_mb)
-        fraction = min(max(self._log_fraction(low, high, message_mb), -1.0), 2.0)
+        effective_message_mb = message_mb
+        extrapolated = message_mb < xs[0] or message_mb > xs[-1]
+        if (message_mb < xs[0] and
+                message_mb >= xs[0] * (1.0 - COMM_PROFILE_BOUNDARY_REL_TOLERANCE)):
+            effective_message_mb = xs[0]
+            extrapolated = False
+        elif (message_mb > xs[-1] and
+              message_mb <= xs[-1] * (1.0 + COMM_PROFILE_BOUNDARY_REL_TOLERANCE)):
+            effective_message_mb = xs[-1]
+            extrapolated = False
+        low, high = self._axis_bounds(xs, effective_message_mb)
+        fraction = min(max(
+            self._log_fraction(low, high, effective_message_mb), -1.0), 2.0)
         values = dict(points)
         result = values[low] + (values[high] - values[low]) * fraction
-        return max(result, 0.001), message_mb < xs[0] or message_mb > xs[-1]
+        return max(result, 0.001), extrapolated
 
     def _calibration_factor(self, stage: str, tp_size: int,
                             batch_size: int = 1, length: int = 1) -> float:
@@ -266,9 +303,26 @@ class LLMCostModel:
             raise ValueError(
                 f"calibration {stage}.TP{tp_size} must be a number or object")
         factor = float(entry.get("base_factor", entry.get("factor", 1.0)))
-        if stage == "decode":
+        if stage in {"prefill", "decode"}:
             reference_batch = max(float(entry.get("reference_batch_size", 8.0)), 1.0)
-            reference_length = max(float(entry.get("reference_kv_len", 1024.0)), 1.0)
+            if stage == "prefill":
+                reference_length = max(float(entry.get(
+                    "reference_prompt_len",
+                    entry.get("reference_length", 1024.0))), 1.0)
+                length_exponent = float(entry.get(
+                    "prompt_exponent", entry.get("length_exponent", 0.0)))
+                length_min = entry.get(
+                    "prompt_len_min", entry.get("length_min"))
+                length_max = entry.get(
+                    "prompt_len_max", entry.get("length_max"))
+            else:
+                reference_length = max(float(entry.get(
+                    "reference_kv_len",
+                    entry.get("reference_length", 1024.0))), 1.0)
+                length_exponent = float(entry.get(
+                    "kv_exponent", entry.get("length_exponent", 0.0)))
+                length_min = entry.get("kv_len_min", entry.get("length_min"))
+                length_max = entry.get("kv_len_max", entry.get("length_max"))
             effective_batch = max(float(batch_size), 1.0)
             effective_length = max(float(length), 1.0)
             if entry.get("batch_size_min") is not None:
@@ -277,16 +331,13 @@ class LLMCostModel:
             if entry.get("batch_size_max") is not None:
                 effective_batch = min(
                     effective_batch, float(entry["batch_size_max"]))
-            if entry.get("kv_len_min") is not None:
-                effective_length = max(
-                    effective_length, float(entry["kv_len_min"]))
-            if entry.get("kv_len_max") is not None:
-                effective_length = min(
-                    effective_length, float(entry["kv_len_max"]))
+            if length_min is not None:
+                effective_length = max(effective_length, float(length_min))
+            if length_max is not None:
+                effective_length = min(effective_length, float(length_max))
             factor *= (effective_batch / reference_batch) ** float(
                 entry.get("batch_exponent", 0.0))
-            factor *= (effective_length / reference_length) ** float(
-                entry.get("kv_exponent", 0.0))
+            factor *= (effective_length / reference_length) ** length_exponent
         lower = float(entry.get("min_factor", 0.1))
         upper = float(entry.get("max_factor", 3.0))
         if not 0 < lower <= upper:
@@ -301,6 +352,23 @@ class LLMCostModel:
         if isinstance(value, dict):
             value = value.get("value", 0.0)
         return max(float(value), 0.0)
+
+    def _communication_scale(self, stage: str, tp_size: int) -> float:
+        """Return the calibrated serial fraction of modeled communication.
+
+        A value below one represents communication hidden by runtime overlap or
+        already included in measured operator timings.  Legacy scalar and
+        shape-only calibration entries retain the historical value of one.
+        """
+        if not self.enable_e2e_compensation:
+            return 1.0
+        entry = self.calibration.get(stage, {}).get(str(tp_size), {})
+        if not isinstance(entry, dict):
+            return 1.0
+        value = float(entry.get("communication_scale", 1.0))
+        if not 0.0 <= value <= 2.0:
+            raise ValueError("communication_scale must be between 0 and 2")
+        return value
 
     def _estimate(self, stage: str, batch_size: int, length: int, tp_size: int,
                   lengths: Optional[Sequence[int]] = None,
@@ -350,7 +418,9 @@ class LLMCostModel:
             message_tokens = batch_size
         message_mb = message_tokens * self.hidden_size * self.bytes_per_elem / (1024 ** 2)
         comm_one, comm_extra = self._comm_time(tp_size, message_mb)
-        communication_ms = comm_one * 2 * self.num_layers
+        raw_communication_ms = comm_one * 2 * self.num_layers
+        communication_scale = self._communication_scale(stage, tp_size)
+        communication_ms = raw_communication_ms * communication_scale
         factor = self._calibration_factor(
             stage, tp_size, batch_size=batch_size, length=length)
         total_ms = (compute_ms + communication_ms) * factor
@@ -362,21 +432,32 @@ class LLMCostModel:
             warnings.append("compute shape is outside the measured profiling grid")
         if comm_extra:
             warnings.append("communication size/TP is outside the measured profiling grid")
+        if communication_scale != 1.0:
+            warnings.append(
+                "applied measured communication serial fraction "
+                f"{communication_scale:.4f}"
+            )
         if factor != 1.0:
             warnings.append(f"applied measured end-to-end calibration factor {factor:.4f}")
         calibration_entry = self.calibration.get(stage, {}).get(str(tp_size), {})
         calibration_shape_clamped = False
-        if self.enable_e2e_compensation and stage == "decode" and isinstance(
+        if self.enable_e2e_compensation and isinstance(
                 calibration_entry, dict):
+            length_min_key = (
+                "prompt_len_min" if stage == "prefill" else "kv_len_min")
+            length_max_key = (
+                "prompt_len_max" if stage == "prefill" else "kv_len_max")
+            length_min = calibration_entry.get(
+                length_min_key, calibration_entry.get("length_min"))
+            length_max = calibration_entry.get(
+                length_max_key, calibration_entry.get("length_max"))
             calibration_shape_clamped = any((
                 calibration_entry.get("batch_size_min") is not None and
                 batch_size < float(calibration_entry["batch_size_min"]),
                 calibration_entry.get("batch_size_max") is not None and
                 batch_size > float(calibration_entry["batch_size_max"]),
-                calibration_entry.get("kv_len_min") is not None and
-                length < float(calibration_entry["kv_len_min"]),
-                calibration_entry.get("kv_len_max") is not None and
-                length > float(calibration_entry["kv_len_max"]),
+                length_min is not None and length < float(length_min),
+                length_max is not None and length > float(length_max),
             ))
             if calibration_shape_clamped:
                 warnings.append(
@@ -389,11 +470,20 @@ class LLMCostModel:
             warnings=warnings).to_dict()
         result.update({"batch_size": batch_size, "tp_size": tp_size, y_key: length,
                        "calibration_factor": factor,
+                       "communication_scale": communication_scale,
+                       "raw_communication_ms": raw_communication_ms,
                        "calibration_shape_clamped": calibration_shape_clamped})
         result["communication_profile_source"] = (
             "schema_v2_collective_profile" if tp_size in self.collective_profile_tps
             else "legacy_collective_profile")
-        result["profile_timing_statistic"] = self.profile_statistic
+        result["profile_timing_statistic"] = (
+            self.operator_profile_statistic
+            if self.operator_profile_statistic == self.collective_profile_statistic
+            else "mixed")
+        result["operator_profile_timing_statistic"] = (
+            self.operator_profile_statistic)
+        result["collective_profile_timing_statistic"] = (
+            self.collective_profile_statistic)
         result["seq_len" if stage == "prefill" else "kv_len"] = length
         operator_breakdown = {
             "attention_ms": attention * self.num_layers * factor,

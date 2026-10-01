@@ -1,0 +1,31 @@
+{
+  "schema_version": 2,
+  "prefill": {
+    "4": 1.0
+  },
+  "decode": {
+    "4": {
+      "base_factor": 0.8633699975234252,
+      "batch_exponent": 0.03407471308279901,
+      "kv_exponent": -0.012624974507831052,
+      "communication_scale": 1.0,
+      "reference_batch_size": 4.0,
+      "reference_kv_len": 512.0,
+      "batch_size_min": 2,
+      "batch_size_max": 10,
+      "kv_len_min": 80,
+      "kv_len_max": 1296,
+      "min_factor": 0.2,
+      "max_factor": 2.0
+    }
+  },
+  "iteration_overhead_ms": {
+    "4": 0.0
+  },
+  "metadata": {
+    "calibration_role": "fixed_batch_decode",
+    "method": "log-linear least squares on observed/model Decode ratio",
+    "fit_dataset": "independent fixed-batch Decode calibration grid",
+    "validation_policy": "B1/4/8 x KV128/512/1024 validation points are forbidden"
+  }
+}

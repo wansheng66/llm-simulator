@@ -1,0 +1,38 @@
+{
+  "schema_version": 2,
+  "prefill": {
+    "4": 1.0
+  },
+  "decode": {
+    "4": {
+      "base_factor": 1.1813132073580754,
+      "batch_exponent": -0.08173539397104324,
+      "kv_exponent": -0.00701202619086855,
+      "communication_scale": 0.0,
+      "reference_batch_size": 4.0,
+      "reference_kv_len": 512.0,
+      "batch_size_min": 2,
+      "batch_size_max": 10,
+      "kv_len_min": 80,
+      "kv_len_max": 1296,
+      "min_factor": 0.2,
+      "max_factor": 2.0
+    }
+  },
+  "iteration_overhead_ms": {
+    "4": 0.0
+  },
+  "metadata": {
+    "method": "communication-aware log-linear least squares on observed/model Decode ratio",
+    "calibration_role": "fixed_batch_decode_operator_domain_extrapolation",
+    "fit_dataset": "15 offline fixed-batch points: B2/3/6 x KV64/256/768 plus B9/10 x KV256/768/1280",
+    "collector": "vllm_fixed_batch_offline",
+    "submission_mode": "offline_enqueue_barrier",
+    "warmup_batches": 1,
+    "measured_batches": 3,
+    "fit_mape_pct": 0.79,
+    "development_validation": "v3 operator-domain extrapolation",
+    "independent_validation": "v4 operator-domain extrapolation",
+    "communication_scale_interpretation": "empirical runtime-adapter coefficient; zero must not be interpreted as zero physical communication cost"
+  }
+}

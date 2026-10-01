@@ -1,0 +1,27 @@
+{
+  "schema_version": 1,
+  "backend_id": "cuda_vllm_stage2_mean_v1",
+  "hardware_id": "djs_l20_8gpu_node",
+  "platform_family": "cuda",
+  "protocol_version": "0.1",
+  "tp_size": 4,
+  "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+  "profiles": {
+    "operator_profile_dir": "data/stage2_profiling/training",
+    "collective_profile_dir": "data/stage2_profiling/collectives",
+    "statistic": "mean"
+  },
+  "calibration": {
+    "enabled": true,
+    "file": "configs/calibration_stage2_decode_tp2_tp4_tp8_bounded.json",
+    "stages": ["decode"]
+  },
+  "validation": {
+    "status": "verified",
+    "report": "data/stage2_validation/tp_matrix_calibrated_holdout/fixed_batch_validation_report.json",
+    "golden_prediction": "data/runtime_predictions/golden/djs_l20_8gpu_node_tp4.json",
+    "prefill_mape_pct": 3.743583087885742,
+    "decode_mape_pct": 9.718847383406203,
+    "policy": "frozen L20 baseline; adding hardware must not mutate this manifest or its artifacts"
+  }
+}

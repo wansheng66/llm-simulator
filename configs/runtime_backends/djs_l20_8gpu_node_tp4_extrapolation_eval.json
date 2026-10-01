@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "backend_id": "cuda_vllm_stage2_inner_grid_extrapolation_eval_v1",
+  "hardware_id": "djs_l20_8gpu_node",
+  "platform_family": "cuda",
+  "protocol_version": "0.1",
+  "tp_size": 4,
+  "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+  "profiles": {
+    "operator_profile_dir": "data/runtime_extrapolation_validation/profile_subsets/l20_tp4_inner_b8_l1024",
+    "collective_profile_dir": "data/stage2_profiling/collectives",
+    "statistic": "mean"
+  },
+  "calibration": {
+    "enabled": true,
+    "file": "configs/calibration_stage2_decode_tp2_tp4_tp8_bounded.json",
+    "stages": ["decode"]
+  },
+  "validation": {
+    "status": "pending",
+    "purpose": "controlled outer-domain holdout; never replaces the verified production L20 runtime backend",
+    "training_support": "operator profiles restricted to Batch<=8 and Prefill/Decode length<=1024",
+    "benchmark_spec": "configs/benchmark_specs/qwen3_32b_runtime_operator_extrapolation_4physical_v3.json"
+  }
+}

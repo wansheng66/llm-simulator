@@ -1,0 +1,69 @@
+{
+  "schema_version": 1,
+  "protocol_version": "0.1",
+  "benchmark_name": "Qwen3-32B TP8 fixed-batch runtime interpolation validation v1",
+  "benchmark_track": "runtime_interpolation_validation",
+  "dataset_role": "runtime_interpolation_validation",
+  "model": {
+    "name": "Qwen3-32B",
+    "model_id": "Qwen/Qwen3-32B",
+    "config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+    "architecture": "dense_decoder_transformer",
+    "attention_type": "GQA",
+    "num_hidden_layers": 64,
+    "hidden_size": 5120,
+    "intermediate_size": 25600,
+    "num_attention_heads": 64,
+    "num_key_value_heads": 8,
+    "head_dim": 128,
+    "dtype": "bfloat16"
+  },
+  "deployment": {
+    "tensor_parallel_size": 8,
+    "physical_accelerator_count": 4,
+    "max_model_len": 8192,
+    "max_num_batched_tokens": 8192,
+    "max_num_seqs": 32,
+    "block_size_tokens": 16,
+    "enforce_eager": true,
+    "enable_prefix_caching": false,
+    "enable_chunked_prefill": false
+  },
+  "measurement": {
+    "submission_mode": "offline_enqueue_barrier",
+    "engine_lifecycle": "isolated_engine_per_sample",
+    "warmup_batches_per_engine": 1,
+    "measured_engine_instances": 7,
+    "maximum_cv_pct": 3.0
+  },
+  "split_policy": {
+    "operator_profile_usage": "frozen_existing_profiles_only",
+    "calibration_usage": "frozen_existing_calibration_only",
+    "prediction_order": "prediction_must_be_written_before ground truth collection",
+    "overlap_rule": "no exact stage/batch/length overlap with operator profiling, calibration, or the formal on-grid validation set"
+  },
+  "workloads": {
+    "prefill": [
+      {"case": "P_INT_B5_L384", "batch_size": 5, "prompt_length": 384},
+      {"case": "P_INT_B5_L640", "batch_size": 5, "prompt_length": 640},
+      {"case": "P_INT_B7_L384", "batch_size": 7, "prompt_length": 384},
+      {"case": "P_INT_B7_L640", "batch_size": 7, "prompt_length": 640}
+    ],
+    "decode": [
+      {"case": "D_INT_B5_KV384", "batch_size": 5, "kv_length": 384},
+      {"case": "D_INT_B5_KV640", "batch_size": 5, "kv_length": 640},
+      {"case": "D_INT_B7_KV384", "batch_size": 7, "kv_length": 384},
+      {"case": "D_INT_B7_KV640", "batch_size": 7, "kv_length": 640}
+    ]
+  },
+  "score": {
+    "per_case": "absolute prediction error and later candidate/reference throughput ratio",
+    "stage_aggregation": "arithmetic mean absolute percentage error for absolute validation",
+    "combined_score": null
+  },
+  "scope": {
+    "measured_case_count": 8,
+    "coverage": "interior non-grid runtime interpolation points",
+    "not_claimed": "extrapolation beyond the profiled batch or length range"
+  }
+}

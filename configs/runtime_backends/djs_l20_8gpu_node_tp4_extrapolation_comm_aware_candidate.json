@@ -1,0 +1,25 @@
+{
+  "schema_version": 1,
+  "backend_id": "cuda_vllm_stage2_inner_grid_comm_aware_candidate_v1",
+  "hardware_id": "djs_l20_8gpu_node",
+  "platform_family": "cuda",
+  "protocol_version": "0.1",
+  "tp_size": 4,
+  "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+  "profiles": {
+    "operator_profile_dir": "data/runtime_extrapolation_validation/profile_subsets/l20_tp4_inner_b8_l1024",
+    "collective_profile_dir": "data/stage2_profiling/collectives",
+    "statistic": "mean"
+  },
+  "calibration": {
+    "enabled": true,
+    "file": "configs/calibration_l20_tp4_decode_comm_aware_candidate.json",
+    "stages": ["decode"]
+  },
+  "validation": {
+    "status": "candidate",
+    "purpose": "communication-aware Decode extrapolation development; must not replace the verified L20 backend before a new holdout passes",
+    "fit_dataset": "independent B2/3/6 x KV64/256/768 Decode calibration grid",
+    "development_report": "data/runtime_extrapolation_validation/reports/l20_tp4_v3_comm_aware_candidate/runtime_extrapolation_validation.json"
+  }
+}

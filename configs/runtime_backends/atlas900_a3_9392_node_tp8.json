@@ -1,0 +1,31 @@
+{
+  "schema_version": 1,
+  "backend_id": "ascend_vllm_tp8_mixed_stats_v1",
+  "hardware_id": "atlas900_a3_9392_node",
+  "platform_family": "ascend",
+  "protocol_version": "0.1",
+  "tp_size": 8,
+  "model_config_sha256": "97e295b63283935788fac5e4f8860862a56d4089538cafc93f0431f2ebe483bb",
+  "profiles": {
+    "operator_profile_dir": "data/runtime_profiles/atlas900_a3_9392_node/tp8/operators",
+    "collective_profile_dir": "data/runtime_profiles/atlas900_a3_9392_node/tp8/collectives",
+    "statistic": "mean",
+    "operator_statistic": "mean",
+    "collective_statistic": "p50"
+  },
+  "calibration": {
+    "enabled": true,
+    "file": "configs/calibration_ascend_a3_tp8_mixed_stats.json",
+    "stages": ["prefill", "decode"]
+  },
+  "validation": {
+    "status": "verified",
+    "formal_grid_report": "data/runtime_validation/ascend_a3_tp8_combined_calibrated/fixed_batch_validation_report.json",
+    "runtime_interpolation_report": "data/runtime_interpolation_validation/reports/ascend_a3_tp8_v1/runtime_interpolation_validation.json",
+    "formal_prefill_mape_pct": 10.05,
+    "formal_decode_mape_pct": 9.23,
+    "interpolation_prefill_mape_pct": 4.21,
+    "interpolation_decode_mape_pct": 6.76,
+    "policy": "backend-specific profiles and calibration are frozen after independent interpolation validation"
+  }
+}

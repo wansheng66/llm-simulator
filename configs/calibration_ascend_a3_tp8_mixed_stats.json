@@ -1,0 +1,44 @@
+{
+  "schema_version": 2,
+  "prefill": {
+    "8": {
+      "base_factor": 0.8754706011911405,
+      "batch_exponent": -0.1617932386026194,
+      "prompt_exponent": -0.1936955905468063,
+      "reference_batch_size": 3.0,
+      "reference_prompt_len": 256.0,
+      "batch_size_min": 2,
+      "batch_size_max": 6,
+      "prompt_len_min": 64,
+      "prompt_len_max": 768,
+      "min_factor": 0.2,
+      "max_factor": 2.0
+    }
+  },
+  "decode": {
+    "8": {
+      "base_factor": 1.6131162596807995,
+      "batch_exponent": -0.09926104521166348,
+      "kv_exponent": 0.008773908047039895,
+      "reference_batch_size": 4.0,
+      "reference_kv_len": 512.0,
+      "batch_size_min": 2,
+      "batch_size_max": 6,
+      "kv_len_min": 80,
+      "kv_len_max": 784,
+      "min_factor": 0.2,
+      "max_factor": 2.0
+    }
+  },
+  "iteration_overhead_ms": {
+    "8": 0.0
+  },
+  "metadata": {
+    "calibration_role": "fixed_batch_stage_shape",
+    "prefill_method": "log-linear least squares on observed/model Prefill ratio",
+    "prefill_fit_dataset": "independent fixed-batch Prefill calibration grid",
+    "validation_policy": "B1/4/8 x KV128/512/1024 validation points are forbidden",
+    "method": "log-linear least squares on observed/model Decode ratio",
+    "fit_dataset": "independent fixed-batch Decode calibration grid"
+  }
+}

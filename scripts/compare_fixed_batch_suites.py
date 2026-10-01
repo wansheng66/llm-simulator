@@ -128,13 +128,57 @@ def load_suite(manifest_path: Path) -> Dict:
     }
 
 
-def compare_suites(reference: Dict, candidate: Dict, max_cv_pct: float) -> Dict:
-    if reference["identity"] != candidate["identity"]:
-        raise ValueError("suite model, TP or dtype identity differs")
-    if reference["runtime"] != candidate["runtime"]:
+def compare_suites(reference: Dict, candidate: Dict, max_cv_pct: float,
+                   comparison_track: str = "iso_logical_tp",
+                   reference_physical_accelerators: int | None = None,
+                   candidate_physical_accelerators: int | None = None) -> Dict:
+    if comparison_track not in {"iso_logical_tp", "iso_physical_accelerators"}:
+        raise ValueError(f"unsupported comparison track: {comparison_track}")
+
+    reference_identity = dict(reference["identity"])
+    candidate_identity = dict(candidate["identity"])
+    reference_tp = int(reference_identity.pop("tp_size"))
+    candidate_tp = int(candidate_identity.pop("tp_size"))
+    if reference_identity != candidate_identity:
+        raise ValueError("suite model or dtype identity differs")
+    if comparison_track == "iso_logical_tp" and reference_tp != candidate_tp:
+        raise ValueError("suite TP identity differs")
+    if comparison_track == "iso_physical_accelerators":
+        counts = (reference_physical_accelerators,
+                  candidate_physical_accelerators)
+        if any(value is None or int(value) <= 0 for value in counts):
+            raise ValueError(
+                "iso_physical_accelerators requires both physical counts")
+        if int(reference_physical_accelerators) != int(
+                candidate_physical_accelerators):
+            raise ValueError("physical accelerator counts differ")
+
+    reference_runtime = dict(reference["runtime"])
+    candidate_runtime = dict(candidate["runtime"])
+    reference_runtime.pop("tp_size", None)
+    candidate_runtime.pop("tp_size", None)
+    if reference_runtime != candidate_runtime:
         raise ValueError("suite scheduler/runtime configuration differs")
-    if reference["policy"] != candidate["policy"]:
-        raise ValueError("suite measurement policy differs")
+    policy_differences = {
+        key: {
+            "reference": reference["policy"].get(key),
+            "candidate": candidate["policy"].get(key),
+        }
+        for key in sorted(set(reference["policy"]) | set(candidate["policy"]))
+        if reference["policy"].get(key) != candidate["policy"].get(key)
+    }
+    if comparison_track == "iso_logical_tp":
+        if policy_differences:
+            raise ValueError("suite measurement policy differs")
+    else:
+        semantic_differences = {
+            key: value for key, value in policy_differences.items()
+            if key != "warmup_batches"
+        }
+        if semantic_differences:
+            raise ValueError(
+                "suite measured-workload policy differs: "
+                f"{semantic_differences}")
     if set(reference["points"]) != set(candidate["points"]):
         raise ValueError("suites do not contain exactly the same workload shapes")
 
@@ -191,9 +235,35 @@ def compare_suites(reference: Dict, candidate: Dict, max_cv_pct: float) -> Dict:
             "hardware_id": candidate["hardware_id"],
             "manifest": candidate["manifest_path"],
         },
-        "identity": reference["identity"],
-        "runtime": reference["runtime"],
-        "measurement_policy": reference["policy"],
+        "comparison_track": comparison_track,
+        "identity": {
+            **reference_identity,
+            "reference_tp_size": reference_tp,
+            "candidate_tp_size": candidate_tp,
+        },
+        "runtime": {
+            **reference_runtime,
+            "reference_tp_size": reference_tp,
+            "candidate_tp_size": candidate_tp,
+        },
+        "resource_allocation": {
+            "reference_physical_accelerators": (
+                reference_physical_accelerators),
+            "candidate_physical_accelerators": (
+                candidate_physical_accelerators),
+        },
+        "measurement_policy": {
+            "common": {
+                key: value for key, value in reference["policy"].items()
+                if key not in policy_differences
+            },
+            "differences": policy_differences,
+            "warmup_policy": (
+                "warmup differences are preparation provenance and do not "
+                "change the measured fixed-batch workload"
+                if "warmup_batches" in policy_differences else "identical"
+            ),
+        },
         "acceptance": {
             "max_cv_pct": max_cv_pct,
             "all_points_repeatable": repeatability_ok,
@@ -217,6 +287,12 @@ def main() -> int:
     parser.add_argument("--reference-manifest", type=Path, required=True)
     parser.add_argument("--candidate-manifest", type=Path, required=True)
     parser.add_argument("--max-cv-pct", type=float, default=3.0)
+    parser.add_argument(
+        "--comparison-track",
+        choices=("iso_logical_tp", "iso_physical_accelerators"),
+        default="iso_logical_tp")
+    parser.add_argument("--reference-physical-accelerators", type=int)
+    parser.add_argument("--candidate-physical-accelerators", type=int)
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     if args.max_cv_pct <= 0:
@@ -226,6 +302,9 @@ def main() -> int:
         load_suite(args.reference_manifest),
         load_suite(args.candidate_manifest),
         args.max_cv_pct,
+        args.comparison_track,
+        args.reference_physical_accelerators,
+        args.candidate_physical_accelerators,
     )
     args.output_dir.mkdir(parents=True, exist_ok=True)
     report_path = args.output_dir / "fixed_batch_relative_report.json"

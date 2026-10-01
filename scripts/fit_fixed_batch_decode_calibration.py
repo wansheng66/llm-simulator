@@ -29,6 +29,24 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--data-dir", type=Path, default=PROJECT_ROOT / "data")
     parser.add_argument("--operator-profile-dir", type=Path, required=True)
     parser.add_argument("--collective-profile-dir", type=Path, required=True)
+    parser.add_argument("--profile-statistic", choices=("mean", "p50"),
+                        default="mean")
+    parser.add_argument("--operator-profile-statistic",
+                        choices=("mean", "p50"))
+    parser.add_argument("--collective-profile-statistic",
+                        choices=("mean", "p50"))
+    parser.add_argument(
+        "--fit-communication-scale", action="store_true",
+        help=(
+            "jointly fit the effective serial fraction of modeled Decode "
+            "communication before fitting the residual shape factor"
+        ),
+    )
+    parser.add_argument("--communication-scale-min", type=float, default=0.0)
+    parser.add_argument("--communication-scale-max", type=float, default=1.5)
+    parser.add_argument("--communication-scale-step", type=float, default=0.01)
+    parser.add_argument("--base-calibration-file", type=Path,
+                        help="optional config whose Prefill entries are preserved")
     parser.add_argument("--reference-batch-size", type=float, default=4.0)
     parser.add_argument("--reference-kv-len", type=float, default=512.0)
     parser.add_argument("--forbid-batches", type=csv_ints,
@@ -91,12 +109,71 @@ def mape(rows: Iterable[Dict], key: str) -> float:
     return statistics.fmean(errors)
 
 
+def fit_communication_aware(
+    rows: Sequence[Dict], reference_batch: float, reference_kv: float,
+    scale_min: float, scale_max: float, scale_step: float,
+) -> Dict[str, float]:
+    """Grid-search communication scale and fit residual log-shape factors."""
+    if not 0.0 <= scale_min <= scale_max <= 2.0:
+        raise ValueError("communication scale bounds must satisfy 0 <= min <= max <= 2")
+    if scale_step <= 0:
+        raise ValueError("communication scale step must be positive")
+    count = int(round((scale_max - scale_min) / scale_step))
+    candidates = [
+        min(scale_min + index * scale_step, scale_max)
+        for index in range(count + 1)
+    ]
+    if not candidates or candidates[-1] < scale_max - 1e-12:
+        candidates.append(scale_max)
+
+    best = None
+    for scale in candidates:
+        adjusted = []
+        for row in rows:
+            item = dict(row)
+            item["baseline_predicted_ms"] = (
+                float(row["baseline_compute_ms"])
+                + scale * float(row["baseline_communication_ms"])
+            )
+            adjusted.append(item)
+        fitted = fit_log_shape(adjusted, reference_batch, reference_kv)
+        errors = []
+        for row in adjusted:
+            factor = fitted["base_factor"] * (
+                row["batch_size"] / reference_batch
+            ) ** fitted["batch_exponent"] * (
+                row["representative_kv_length"] / reference_kv
+            ) ** fitted["kv_exponent"]
+            predicted = row["baseline_predicted_ms"] * min(
+                max(factor, 0.2), 2.0
+            )
+            errors.append(
+                abs(predicted - row["observed_ms"]) / row["observed_ms"]
+                * 100.0
+            )
+        objective = statistics.fmean(errors)
+        candidate = {
+            **fitted,
+            "communication_scale": scale,
+            "fitted_mape_pct": objective,
+        }
+        if best is None or (candidate["fitted_mape_pct"], abs(scale - 1.0)) < (
+            best["fitted_mape_pct"], abs(best["communication_scale"] - 1.0)
+        ):
+            best = candidate
+    assert best is not None
+    return best
+
+
 def main() -> int:
     args = parse_args()
     model = LLMCostModel(
         str(args.data_dir),
         operator_profile_dir=str(args.operator_profile_dir),
         collective_profile_dir=str(args.collective_profile_dir),
+        profile_statistic=args.profile_statistic,
+        operator_profile_statistic=args.operator_profile_statistic,
+        collective_profile_statistic=args.collective_profile_statistic,
     )
     rows_by_tp: Dict[int, List[Dict]] = {}
     identities = set()
@@ -131,22 +208,54 @@ def main() -> int:
             "representative_kv_length": representative,
             "observed_ms": float(payload["summary"]["mean_ms"]),
             "baseline_predicted_ms": float(baseline["total_time_ms"]),
+            "baseline_compute_ms": float(baseline["breakdown"]["compute_ms"]),
+            "baseline_communication_ms": float(
+                baseline["breakdown"]["comm_ms"]),
         })
     if len(identities) != 1 or None in next(iter(identities), ()):
         raise ValueError("calibration files do not share complete model/runtime identity")
 
-    decode = {}
-    prefill = {}
-    overhead = {}
+    if args.base_calibration_file:
+        calibration = json.loads(
+            args.base_calibration_file.read_text(encoding="utf-8"))
+    else:
+        calibration = {
+            "schema_version": 2,
+            "prefill": {},
+            "decode": {},
+            "iteration_overhead_ms": {},
+        }
+    decode = calibration.setdefault("decode", {})
+    prefill = calibration.setdefault("prefill", {})
+    overhead = calibration.setdefault("iteration_overhead_ms", {})
     tp_reports = {}
     for tp_size, rows in sorted(rows_by_tp.items()):
         if len({row["batch_size"] for row in rows}) < 2 or len({
                 row["initial_kv_length"] for row in rows}) < 2:
             raise ValueError(f"TP{tp_size} needs at least two Batch and KV values")
-        fitted = fit_log_shape(
-            rows, args.reference_batch_size, args.reference_kv_len)
+        if args.fit_communication_scale:
+            fitted_result = fit_communication_aware(
+                rows,
+                args.reference_batch_size,
+                args.reference_kv_len,
+                args.communication_scale_min,
+                args.communication_scale_max,
+                args.communication_scale_step,
+            )
+        else:
+            fitted_result = {
+                **fit_log_shape(
+                    rows, args.reference_batch_size, args.reference_kv_len
+                ),
+                "communication_scale": 1.0,
+            }
+        fitted = {
+            key: fitted_result[key]
+            for key in ("base_factor", "batch_exponent", "kv_exponent")
+        }
         entry = {
             **fitted,
+            "communication_scale": fitted_result["communication_scale"],
             "reference_batch_size": args.reference_batch_size,
             "reference_kv_len": args.reference_kv_len,
             "batch_size_min": min(row["batch_size"] for row in rows),
@@ -157,6 +266,11 @@ def main() -> int:
             "max_factor": 2.0,
         }
         for row in rows:
+            row["communication_adjusted_baseline_ms"] = (
+                row["baseline_compute_ms"]
+                + entry["communication_scale"]
+                * row["baseline_communication_ms"]
+            )
             factor = fitted["base_factor"] * (
                 row["batch_size"] / args.reference_batch_size
             ) ** fitted["batch_exponent"] * (
@@ -164,13 +278,16 @@ def main() -> int:
             ) ** fitted["kv_exponent"]
             row["calibration_factor"] = min(max(factor, 0.2), 2.0)
             row["calibrated_predicted_ms"] = (
-                row["baseline_predicted_ms"] * row["calibration_factor"])
+                row["communication_adjusted_baseline_ms"]
+                * row["calibration_factor"])
         decode[str(tp_size)] = entry
-        prefill[str(tp_size)] = 1.0
-        overhead[str(tp_size)] = 0.0
+        prefill.setdefault(str(tp_size), 1.0)
+        overhead.setdefault(str(tp_size), 0.0)
         tp_reports[str(tp_size)] = {
             "point_count": len(rows),
             "baseline_mape_pct": mape(rows, "baseline_predicted_ms"),
+            "communication_adjusted_baseline_mape_pct": mape(
+                rows, "communication_adjusted_baseline_ms"),
             "fitted_mape_pct": mape(rows, "calibrated_predicted_ms"),
             "parameters": entry,
             "points": rows,
@@ -179,18 +296,22 @@ def main() -> int:
               f"{tp_reports[str(tp_size)]['baseline_mape_pct']:.2f}%, "
               f"fitted MAPE={tp_reports[str(tp_size)]['fitted_mape_pct']:.2f}%")
 
-    calibration = {
-        "schema_version": 2,
-        "prefill": prefill,
-        "decode": decode,
-        "iteration_overhead_ms": overhead,
-        "metadata": {
-            "calibration_role": "fixed_batch_decode",
-            "method": "log-linear least squares on observed/model Decode ratio",
+    has_shape_prefill = any(
+        isinstance(value, dict) for value in prefill.values())
+    calibration["schema_version"] = 2
+    calibration["metadata"] = {
+            **calibration.get("metadata", {}),
+            "calibration_role": (
+                "fixed_batch_stage_shape" if has_shape_prefill
+                else "fixed_batch_decode"),
+            "method": (
+                "communication-scale grid search plus log-linear residual "
+                "shape fit" if args.fit_communication_scale else
+                "log-linear least squares on observed/model Decode ratio"
+            ),
             "fit_dataset": "independent fixed-batch Decode calibration grid",
             "validation_policy": (
                 "B1/4/8 x KV128/512/1024 validation points are forbidden"),
-        },
     }
     report = {
         "schema_version": 1,
@@ -200,6 +321,20 @@ def main() -> int:
             "reference_kv_len": args.reference_kv_len,
             "forbidden_validation_batches": sorted(args.forbid_batches),
             "forbidden_validation_lengths": sorted(args.forbid_lengths),
+            "profile_timing_statistic": args.profile_statistic,
+            "operator_profile_timing_statistic": (
+                args.operator_profile_statistic or args.profile_statistic),
+            "collective_profile_timing_statistic": (
+                args.collective_profile_statistic or args.profile_statistic),
+            "base_calibration_file": (
+                str(args.base_calibration_file.resolve())
+                if args.base_calibration_file else None),
+            "fit_communication_scale": args.fit_communication_scale,
+            "communication_scale_search": {
+                "min": args.communication_scale_min,
+                "max": args.communication_scale_max,
+                "step": args.communication_scale_step,
+            } if args.fit_communication_scale else None,
         },
         "runtime_identity": {
             "model_config_sha256": next(iter(identities))[0],
